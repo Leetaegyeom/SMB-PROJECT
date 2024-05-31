@@ -1,0 +1,9 @@
+<launch>
+
+    <include file="$(find xycar_motor)/launch/xycar_motor_a2.launch" />
+
+
+
+    <node name="my_hough" pkg="my_hough" type="motor_test.py" output="screen" />
+
+</launch>

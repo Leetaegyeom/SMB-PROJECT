@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="xycar_imu" type="9dof_imu_node.py" name="xycar_imu" output="screen">
+    <param name="rviz_mode" type="string" value="true" />
+  </node>
+  <node name="rviz_imu" pkg="rviz" type="rviz" args="-d $(find xycar_imu)/rviz/view_imu.rviz" />
+</launch>

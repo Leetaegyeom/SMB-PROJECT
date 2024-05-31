@@ -1,0 +1,10 @@
+<launch>
+  <!-- motor node -->
+  <include file="$(find xycar_motor)/launch/xycar_motor_a2.launch" />
+
+  <!-- lidar node -->
+  <include file="$(find xycar_lidar)/launch/xycar_lidar.launch" />
+
+  <!-- auto drive -->
+  <node name="sensor_drive" pkg="sensor_drive" type="lidar_a2.py" output="screen"/>
+</launch>
