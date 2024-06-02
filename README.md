@@ -1,2 +1,4 @@
 # SMB-PROJECT
-Smart_mobility_design Final project 
+Smart mobility design Final project
+
+Member: Younghoon Go, Seungheon Lee, Taegyeom Lee, Myeongyu Park
