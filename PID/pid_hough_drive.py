@@ -23,7 +23,7 @@ img_ready = False
 
 CAM_FPS = 30
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 250 # ROI row
+ROI_ROW = 250 
 ROI_HEIGHT = HEIGHT - ROI_ROW
 L_ROW = ROI_HEIGHT - 120 
 
@@ -67,14 +67,13 @@ def start():
     global image, img_ready
     global motor
     prev_x_left, prev_x_right = 0, WIDTH
+    prev_x_midpoint = WIDTH // 2
 
     rospy.init_node('h_drive')
 
     motor = rospy.Publisher('xycar_motor', xycar_motor, queue_size=1)
 
     image_sub = rospy.Subscriber("/usb_cam/image_raw/",Image, img_callback)
-
-    # pid = PID(0.45, 0.0007, 0.15)
 
     print("---------- Xycar ----------")
 
@@ -87,8 +86,6 @@ def start():
             continue
 
         img = image.copy()
-        display_img = img
-
         img_ready = False 
 
         # ==========================================
@@ -97,163 +94,55 @@ def start():
         blur_gray = cv2.GaussianBlur(gray,(5, 5), 0)
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
 
-        all_lines = cv2.HoughLinesP(edge_img, 1, math.pi/180, 30, 30, 10)
+        roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
 
         if all_lines is None:
             continue
 
-        line_draw_img = img.copy()
-
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
-            cv2.line(line_draw_img, (x1, y1), (x2, y2), (0,255,0), 2)
-
-        roi_img = img[ROI_ROW:HEIGHT, 0:WIDTH]
-        roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,30,20)
 
         if all_lines is None:
             continue
 
-        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img[ROI_ROW:HEIGHT, 0:WIDTH]
-
-
-        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,50,20)
-
-        slopes = []
-        filtered_lines = []
+        left_x, right_x = [], []
         
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
+            slope = (y2 - y1) / (x2 - x1 + 1e-6)  # Prevent devide by 0
 
-            if (x2 == x1):
-                slope = 1000.0
-            else:
-                slope = float(y2-y1) / float(x2-x1)
+            if slope < -0.2 and x2 < WIDTH / 2:
+                left_x.append(x1)
+                left_x.append(x2)
+            elif slope > 0.2 and x1 > WIDTH / 2:
+                right_x.append(x1)
+                right_x.append(x2)
 
-            if 0.2 < abs(slope):
-                slopes.append(slope)
-                filtered_lines.append(line[0])
-
-        left_lines = []
-        right_lines = []
-
-        for j in range(len(slopes)):
-            Line = filtered_lines[j]
-            slope = slopes[j]
-
-            x1,y1, x2,y2 = Line
-
-            if (slope < 0) and (x2 < WIDTH/2):
-                left_lines.append(Line.tolist())
-
-            elif (slope > 0) and (x1 > WIDTH/2):
-                right_lines.append(Line.tolist())
-
-        line_draw_img = roi_img.copy()
-
-        for line in left_lines:
-            x1,y1, x2,y2 = line
-            cv2.line(line_draw_img, (x1,y1), (x2,y2), (0,0,255), 2)
-
-        for line in right_lines:
-            x1,y1, x2,y2 = line
-            cv2.line(line_draw_img, (x1,y1), (x2,y2), (0,255,255), 2)
-
-        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
-
-        m_left, b_left = 0.0, 0.0
-        x_sum, y_sum, m_sum = 0.0, 0.0, 0.0
-
-        size = len(left_lines)
-
-        if size !=0:
-            for line in left_lines:
-                x1, y1, x2, y2 = line
-                x_sum += x1 + x2
-                y_sum += y1 + y2
-
-                if(x2 != x1):
-                    m_sum += float(y2-y1)/float(x2-x1)
-                else:
-                    m_sum += 0
-                    
-            x_avg = x_sum / (size * 2)
-            y_avg = y_sum / (size * 2)
-            m_left = m_sum / size
-            b_left = y_avg - m_left * x_avg
-
-            if m_left != 0.0:
-                x1 = int((0.0 - b_left) / m_left)
-                x2 = int((ROI_HEIGHT - b_left) / m_left)
-
-                cv2.line(line_draw_img, (x1,0), (x2,ROI_HEIGHT), (255,0,0), 2)
-
-        m_right, b_right = 0.0, 0.0
-        x_sum, y_sum, m_sum = 0.0, 0.0, 0.0
-
-        size = len(right_lines)
-
-        if size !=0:
-            for line in right_lines:
-                x1, y1, x2, y2 = line
-                x_sum += x1 + x2
-                y_sum += y1 + y2
-
-                if(x2 != x1):
-                    m_sum += float(y2-y1)/float(x2-x1)
-                else:
-                    m_sum += 0
-
-            x_avg = x_sum / (size * 2)
-            y_avg = y_sum / (size * 2)
-            m_right = m_sum / size
-            b_right = y_avg - m_right * x_avg
-
-            if m_right != 0.0:
-                x1 = int((0.0 - b_right) / m_right)
-                x2 = int((ROI_HEIGHT - b_right) / m_right)
-
-                cv2.line(line_draw_img, (x1,0), (x2,ROI_HEIGHT), (255,0,0), 2)
-
-        if m_left == 0.0:
-            x_left = prev_x_left
-
-        else:
-            x_left = int((L_ROW - b_left) / m_left)
-            prev_x_left = x_left
-
-        if m_right == 0.0:
-            x_right = prev_x_right
-
-        else:
-            x_right = int((L_ROW - b_right) / m_right)
-            prev_x_right = x_right
+        if left_x and right_x: # 2-Line driving
+            x_left = sum(left_x) / len(left_x)
+            x_right = sum(right_x) / len(right_x)
+            x_midpoint = (x_left + x_right) // 2
+        elif left_x: # 1-Line driving(Left Line)
+            x_left = sum(left_x) / len(left_x)
+            x_midpoint = x_left + (prev_x_midpoint - prev_x_left)
+        elif right_x: # 1-Line driving(Right Line)
+            x_right = sum(right_x) / len(right_x)
+            x_midpoint = x_right + (prev_x_midpoint - prev_x_right)
+        else: # 0-Line driving
+            x_midpoint = prev_x_midpoint
 
         prev_x_left = x_left
         prev_x_right = x_right
+        prev_x_midpoint = x_midpoint
 
-        x_midpoint = (x_left + x_right) // 2 
-
-        view_center = WIDTH//2
-
-        cv2.line(line_draw_img, (0,L_ROW), (WIDTH,L_ROW), (0,255,255), 2)
-        cv2.rectangle(line_draw_img, (x_left-5,L_ROW-5), (x_left+5,L_ROW+5), (0,255,0), 4)
-        cv2.rectangle(line_draw_img, (x_right-5,L_ROW-5), (x_right+5,L_ROW+5), (0,255,0), 4)
-        cv2.rectangle(line_draw_img, (x_midpoint-5,L_ROW-5), (x_midpoint+5,L_ROW+5), (255,0,0), 4)
-        cv2.rectangle(line_draw_img, (view_center-5,L_ROW-5), (view_center+5,L_ROW+5), (0,0,255), 4)
-
-        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
-        #cv2.imshow("Lanes positions", display_img)
         cv2.waitKey(1)
 
         # ==========================================
 
-
-        #angle = PID(x_midpoint, 0.45, 0.0007, 0.25)
         angle = PID(x_midpoint, 0.6, 0.006, 0.001)
-#	angle = PID(x_midpoint, 1, 0.001, 0.001)
+
         speed = 5
 
         drive(angle, speed)
