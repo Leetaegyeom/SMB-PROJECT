@@ -91,14 +91,7 @@ def start():
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blur_gray = cv2.GaussianBlur(gray,(5, 5), 0)
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
-
         roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
-
-        if all_lines is None:
-            continue
-
-        for line in all_lines:
-            x1, y1, x2, y2 = line[0]
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,30,20)
 
