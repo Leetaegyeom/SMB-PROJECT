@@ -25,8 +25,6 @@ CAM_FPS = 30
 WIDTH, HEIGHT = 640, 480
 ROI_ROW = 250 
 ROI_HEIGHT = HEIGHT - ROI_ROW
-L_ROW = ROI_HEIGHT - 120 
-
 
 def PID(input_data, kp, ki, kd):
     global start_time, end_time, prev_error, i_error
