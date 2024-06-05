@@ -11,6 +11,15 @@ import rospy, rospkg, time
 from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 
+CONTROL_TIME = 0.1
+RATE = rospy.Rate(1 / CONTROL_TIME)
+WIDTH, HEIGHT = 640, 320
+
+P_GAIN = 0.6
+I_GAIN = 0.006
+D_GAIN = 0.001
+SPEED = 5
+
 
 # IMAGE PROCESSING FOR CAM_DRIVING
 class IMG_PROCESSING:
@@ -20,17 +29,16 @@ class IMG_PROCESSING:
         self.image = np.empty(shape=[0])
         self.bridge = CvBridge()
         self.img_ready = False
-        self.WIDTH, self.HEIGHT = 640, 480
         self.CAM_FPS = 30
         self.ROI_ROW = 250
-        self.ROI_HEIGHT = self.HEIGHT - self.ROI_ROW
+        self.ROI_HEIGHT = HEIGHT - self.ROI_ROW
         
     def img_callback(self, data):
         self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
         self.img_ready = True
         
     def is_image_ready(self):
-        return self.img_ready and (not self.image.size == (self.WIDTH * self.HEIGHT * 3))
+        return self.img_ready and (not self.image.size == (WIDTH * HEIGHT * 3))
         
     def find_line(self):
         img = self.image.copy()
@@ -39,7 +47,7 @@ class IMG_PROCESSING:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blur_gray = cv2.GaussianBlur(gray,(5, 5), 0)
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
-        roi_edge_img = edge_img[self.ROI_ROW:self.HEIGHT, 0:self.WIDTH]
+        roi_edge_img = edge_img[self.ROI_ROW:HEIGHT, 0:WIDTH]
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,30,20)
 
@@ -49,11 +57,11 @@ class IMG_PROCESSING:
             x1, y1, x2, y2 = line[0]
             slope = (y2 - y1) / (x2 - x1 + 1e-6)
 
-            if slope < -0.2 and x2 < self.WIDTH // 2:
+            if slope < -0.2 and x2 < WIDTH // 2:
                 left_x.append(x1)
                 left_x.append(x2)
                 
-            elif slope > 0.2 and x1 > self.WIDTH // 2:
+            elif slope > 0.2 and x1 > WIDTH // 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 
@@ -84,31 +92,66 @@ class LIDAR_PROCESSING:
 # USAGE : TWO LINE TRACKING(MISSION 1), ONE LINE TRACKING(MISSION 2) 
 class CAM_DRIVING:
     def __init__(self):
-        rospy.init_node('cam_driving')
         self.img_proc = IMG_PROCESSING()
-        self.motor_pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size=1)
-        self.WIDTH, self.HEIGHT = 640, 480
 
+    def find_midpoint(self):
+        # Wait until image is ready
+        while not self.img_proc.is_image_ready():
+            RATE.sleep()
+        
+        left_x, right_x = self.img_proc.find_line()
+        
+        if left_x and right_x:
+            x_left = sum(left_x) / len(left_x)
+            x_right = sum(right_x) / len(right_x)
+            x_midpoint = (x_left + x_right) // 2
+            
+        elif left_x:
+            x_left = sum(left_x) / len(left_x)
+            x_midpoint = x_left + (self.prev_x_midpoint - self.prev_x_left)
+            
+        elif right_x:
+            x_right = sum(right_x) / len(right_x)
+            x_midpoint = x_right + (self.prev_x_midpoint - self.prev_x_right)
+            
+        else:
+            return None
+
+        self.prev_x_left = x_left
+        self.prev_x_right = x_right
+        self.prev_x_midpoint = x_midpoint
+        
+        return x_midpoint
+
+
+# WALL TRACKING BY USING LIDAR
+# USAGE : OBSTACLE AVOIDANCE(MISSION 3), TUNNEL DRIVING(MISSION 4)
+class LIDAR_DRIVING:
+    def __init__(self):
+        self.lidar_points = None
+        rospy.Subscriber("/scan", LaserScan, self.lidar_callback, queue_size=1)
+
+    def lidar_callback(self, data):
+        self.lidar_points = data.ranges
+
+
+# SEND CONTROL MESSAGE TO XYCAR
+class CONTROL:
+    def __init__(self):
+        self.motor_pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size=1)
+        
         self.i_error = 0.0
         self.prev_error = 0.0
 
-        self.P_GAIN = 0.6
-        self.I_GAIN = 0.006
-        self.D_GAIN = 0.001
-        self.SPEED = 5
-
         self.ANGLE_LIMIT = 50
-
-        self.dt = 0.1
-        self.rate = rospy.Rate(1/self.dt)
-
+        
     def pid(self, input_data, kp, ki, kd):
-        error = self.WIDTH // 2 - input_data
+        error = WIDTH // 2 - input_data
         derror = error - self.prev_error
 
         p_error = kp * error
-        self.i_error = self.i_error + ki * error * self.dt
-        d_error = kd * derror / self.dt
+        self.i_error = self.i_error + ki * error * CONTROL_TIME
+        d_error = kd * derror / CONTROL_TIME
 
         output = p_error + self.i_error + d_error
         self.prev_error = error
@@ -125,52 +168,25 @@ class CAM_DRIVING:
         motor_msg.angle = Angle
         motor_msg.speed = Speed
         self.motor_pub.publish(motor_msg)
+        
 
-    def line_tracking(self):
-        while not rospy.is_shutdown():
-            if not self.img_proc.img_ready():
-                continue
-
-            left_x, right_x = self.img_proc.find_line()
-            
-            if left_x and right_x:
-                x_left = sum(left_x) / len(left_x)
-                x_right = sum(right_x) / len(right_x)
-                x_midpoint = (x_left + x_right) // 2
-                
-            elif left_x:
-                x_left = sum(left_x) / len(left_x)
-                x_midpoint = x_left + (self.prev_x_midpoint - self.prev_x_left)
-                
-            elif right_x:
-                x_right = sum(right_x) / len(right_x)
-                x_midpoint = x_right + (self.prev_x_midpoint - self.prev_x_right)
-                
-            else:
-                continue
-
-            self.prev_x_left = x_left
-            self.prev_x_right = x_right
-            self.prev_x_midpoint = x_midpoint
-
-            self.drive(self.pid(x_midpoint, self.P_GAIN, self.I_GAIN, self.D_GAIN), self.SPEED)
-            
-            self.rate.sleep()
-
-
-# WALL TRACKING BY USING LIDAR
-# USAGE : OBSTACLE AVOIDANCE(MISSION 3), TUNNEL DRIVING(MISSION 4)
-class LIDAR_DRIVING:
-    def __init__(self):
-        rospy.init_node('lidar_driving')
-        self.lidar_points = None
-        lidar_sub = rospy.Subscriber("/scan", LaserScan, self.lidar_callback, queue_size=1)
-
-    def lidar_callback(self, data):
-        self.lidar_points = data.ranges
-
-
-## MAIN CODE EX
-# if __name__ == '__main__':
-#     cam_driving = CAM_DRIVING()
-#     cam_driving.start()
+# MAIN LOOP
+if __name__ == '__main__':
+    rospy.init_node('xycar')
+    xycar = CONTROL()
+    cam_drive = CAM_DRIVING()
+    lidar_drive = LIDAR_DRIVING()
+    
+    while not rospy.is_shutdown():
+        
+        cam_midpoint = cam_drive.find_midpoint()
+        if cam_midpoint is None:
+            midpoint = lidar_drive.find_midpoint()      # Have to create
+        else:
+            midpoint = cam_midpoint
+        
+        angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN)
+        speed = SPEED   # 0 when must stop
+        xycar.drive(angle, speed)
+        
+        RATE.sleep()
