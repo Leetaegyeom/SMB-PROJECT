@@ -40,10 +40,7 @@ class IMG_PROCESSING:
     def is_image_ready(self):
         return self.img_ready and (not self.image.size == (WIDTH * HEIGHT * 3))
         
-    def find_line(self):
-        if not self.is_image_ready():
-            return [], []
-        
+    def find_line(self):        
         img = self.image.copy()
         self.img_ready = False
 
@@ -56,7 +53,7 @@ class IMG_PROCESSING:
         if all_lines is None:
             return [], []
 
-        left_x, right_x = []
+        left_x, right_x = [], []
 
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
@@ -83,6 +80,9 @@ class CAM_DRIVING:
         self.prev_x_midpoint = WIDTH // 2
 
     def find_midpoint(self):
+        while not self.img_proc.is_image_ready():
+            RATE.sleep()
+        
         left_x, right_x = self.img_proc.find_line()
         
         if left_x and right_x:
