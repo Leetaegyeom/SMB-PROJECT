@@ -3,15 +3,19 @@
 
 import numpy as np
 import cv2, math
-import rospy, rospkg, time
-from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+import rospy, rospkg, time
+from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 
 # LINE TRACKING BY USING CAMERA
 # USAGE : TWO LINE TRACKING(MISSION 1), ONE LINE TRACKING(MISSION 2) 
-class LINE_TRACKING:
+class CAM_DRIVING:
     def __init__(self):
+        rospy.init_node('cam_driving')
+        self.motor_pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size=1)
+        image_sub = rospy.Subscriber("/usb_cam/image_raw/", Image, self.img_callback)
+
         self.image = np.empty(shape=[0])
         self.bridge = CvBridge()        
         self.img_ready = False
@@ -23,12 +27,19 @@ class LINE_TRACKING:
         self.i_error = 0.0
         self.prev_error = 0.0
 
-        self.dt = 0.1
-        self.rate = rospy.Rate(self.dt)
+        self.P_GAIN = 0.6
+        self.I_GAIN = 0.006
+        self.D_GAIN = 0.001
+        self.SPEED = 5
 
-        rospy.init_node('line_tracking')
-        self.motor_pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size=1)
-        image_sub = rospy.Subscriber("/usb_cam/image_raw/", Image, self.img_callback)
+        self.ANGLE_LIMIT = 50
+
+        self.dt = 0.1
+        self.rate = rospy.Rate(1/self.dt)
+
+    def img_callback(self, data):
+        self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+        self.img_ready = True
 
     def pid(self, input_data, kp, ki, kd):
         error = 320 - input_data
@@ -41,16 +52,12 @@ class LINE_TRACKING:
         output = p_error + self.i_error + d_error
         self.prev_error = error
 
-        if output > 50:
-            output = 50
-        elif output < -50:
-            output = -50
+        if output > self.ANGLE_LIMIT:
+            output = self.ANGLE_LIMIT
+        elif output < -self.ANGLE_LIMIT:
+            output = -self.ANGLE_LIMIT
 
         return -output
-
-    def img_callback(self, data):
-        self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        self.img_ready = True
 
     def drive(self, Angle, Speed):
         motor_msg = xycar_motor()
@@ -58,7 +65,7 @@ class LINE_TRACKING:
         motor_msg.speed = Speed
         self.motor_pub.publish(motor_msg)
 
-    def start(self):
+    def line_tracking(self):
         while not self.image.size == (self.WIDTH * self.HEIGHT * 3):
             continue
 
@@ -109,13 +116,26 @@ class LINE_TRACKING:
             self.prev_x_right = x_right
             self.prev_x_midpoint = x_midpoint
 
-            cv2.waitKey(1)
+            # cv2.waitKey(1) <-- 이거 imshow할때만 필요한거 아닌가 ?? (태겸)
 
-            angle = self.pid(x_midpoint, 0.6, 0.006, 0.001)
-            speed = 5
+            self.drive(self.pid(x_midpoint, self.P_GAIN, self.I_GAIN, self.D_GAIN), self.SPEED)
+            
+            self.rate.sleep()
 
-            self.drive(angle, speed)
 
+# WALL TRACKING BY USING LIDAR
+# USAGE : OBSTACLE AVOIDANCE(MISSION 3), TUNNEL DRIVING(MISSION 4)
+class LIDAR_DRIVING:
+    def __init__(self):
+        rospy.init_node('lidar_driving')
+        self.lidar_points = None
+        lidar_sub = rospy.Subscriber("/scan", LaserScan, self.lidar_callback, queue_size=1)
+
+    def lidar_callback(self, data):
+        self.lidar_points = data.ranges
+
+
+## MAIN CODE EX
 # if __name__ == '__main__':
-#     line_tracking = LINE_TRACKING()
-#     line_tracking.start()
+#     cam_driving = CAM_DRIVING()
+#     cam_driving.start()
