@@ -41,17 +41,22 @@ class IMG_PROCESSING:
         return self.img_ready and (not self.image.size == (WIDTH * HEIGHT * 3))
         
     def find_line(self):
+        if not self.is_image_ready():
+            return [], []
+        
         img = self.image.copy()
         self.img_ready = False
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blur_gray = cv2.GaussianBlur(gray,(5, 5), 0)
+        blur_gray = cv2.GaussianBlur(gray, (5, 5), 0)
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
         roi_edge_img = edge_img[self.ROI_ROW:HEIGHT, 0:WIDTH]
 
-        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,30,20)
+        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
+        if all_lines is None:
+            return [], []
 
-        left_x, right_x = [], []
+        left_x, right_x = []
 
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
@@ -68,37 +73,16 @@ class IMG_PROCESSING:
         return left_x, right_x
 
 
-# LIDAR PROCESSING FOR LIDAR_DRIVING 
-class LIDAR_PROCESSING:
-        def __init__(self):
-            rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
-        
-        def lidar_callback(self, data):
-            ranges = np.array(data.ranges)
-            valid_idx = (ranges > data.range_min) & (ranges < data.range_max)
-            points = np.column_stack((ranges[valid_idx] * np.cos(np.deg2rad(data.angle_min + data.angle_increment * np.arange(len(ranges))[valid_idx])),
-                                    ranges[valid_idx] * np.sin(np.deg2rad(data.angle_min + data.angle_increment * np.arange(len(ranges))[valid_idx]))))
-
-            db = DBSCAN(eps=0.2, min_samples=3).fit(points)
-            labels = db.labels_
-
-            for label in set(labels):
-                if label != -1:
-                    cluster = points[labels == label]
-                    print(f'Cluster {label}: size={len(cluster)}, center={np.mean(cluster, axis=0)}')
-
-
 # LINE TRACKING BY USING CAMERA
 # USAGE : TWO LINE TRACKING(MISSION 1), ONE LINE TRACKING(MISSION 2) 
 class CAM_DRIVING:
     def __init__(self):
         self.img_proc = IMG_PROCESSING()
+        self.prev_x_left = 0
+        self.prev_x_right = 0
+        self.prev_x_midpoint = WIDTH // 2
 
     def find_midpoint(self):
-        # Wait until image is ready
-        while not self.img_proc.is_image_ready():
-            RATE.sleep()
-        
         left_x, right_x = self.img_proc.find_line()
         
         if left_x and right_x:
@@ -124,16 +108,35 @@ class CAM_DRIVING:
         return x_midpoint
 
 
-# WALL TRACKING BY USING LIDAR
-# USAGE : OBSTACLE AVOIDANCE(MISSION 3), TUNNEL DRIVING(MISSION 4)
+# LINE TRACKING BY USING LIDAR
 class LIDAR_DRIVING:
     def __init__(self):
+        rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
         self.lidar_points = None
-        rospy.Subscriber("/scan", LaserScan, self.lidar_callback, queue_size=1)
-
+        
     def lidar_callback(self, data):
         self.lidar_points = data.ranges
 
+    def find_midpoint(self):
+        if self.lidar_points is None:
+            return None
+        
+        ranges = np.array(self.lidar_points)
+        valid_idx = (ranges > 0.1) & (ranges < 10.0)        # Adjust the min and max range as necessary
+        points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
+                                  ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
+
+        db = DBSCAN(eps=0.2, min_samples=3).fit(points)
+        labels = db.labels_
+
+        clusters = [points[labels == label] for label in set(labels) if label != -1]
+        if not clusters:
+            return None
+
+        largest_cluster = max(clusters, key=len)
+        center = np.mean(largest_cluster, axis=0)
+        return center[0]
+    
 
 # SEND CONTROL MESSAGE TO XYCAR
 class CONTROL:
@@ -142,7 +145,6 @@ class CONTROL:
         
         self.i_error = 0.0
         self.prev_error = 0.0
-
         self.ANGLE_LIMIT = 50
         
     def pid(self, input_data, kp, ki, kd):
@@ -178,15 +180,15 @@ if __name__ == '__main__':
     lidar_drive = LIDAR_DRIVING()
     
     while not rospy.is_shutdown():
-        
         cam_midpoint = cam_drive.find_midpoint()
         if cam_midpoint is None:
-            midpoint = lidar_drive.find_midpoint()      # Have to create
+            midpoint = lidar_drive.find_midpoint()
         else:
             midpoint = cam_midpoint
         
-        angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN)
-        speed = SPEED   # 0 when must stop
-        xycar.drive(angle, speed)
+        if midpoint is not None:
+            angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN)
+            speed = SPEED  # Adjust speed as necessary
+            xycar.drive(angle, speed)
         
         RATE.sleep()
