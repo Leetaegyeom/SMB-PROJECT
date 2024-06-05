@@ -4,7 +4,10 @@
 import numpy as np
 import cv2, math
 from cv_bridge import CvBridge
+from sklearn.cluster import DBSCAN
+
 import rospy, rospkg, time
+
 from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 
@@ -55,6 +58,26 @@ class IMG_PROCESSING:
                 right_x.append(x2)
                 
         return left_x, right_x
+
+
+# LIDAR PROCESSING FOR LIDAR_DRIVING 
+class LIDAR_PROCESSING:
+        def __init__(self):
+            rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
+        
+        def lidar_callback(self, data):
+            ranges = np.array(data.ranges)
+            valid_idx = (ranges > data.range_min) & (ranges < data.range_max)
+            points = np.column_stack((ranges[valid_idx] * np.cos(np.deg2rad(data.angle_min + data.angle_increment * np.arange(len(ranges))[valid_idx])),
+                                    ranges[valid_idx] * np.sin(np.deg2rad(data.angle_min + data.angle_increment * np.arange(len(ranges))[valid_idx]))))
+
+            db = DBSCAN(eps=0.2, min_samples=3).fit(points)
+            labels = db.labels_
+
+            for label in set(labels):
+                if label != -1:
+                    cluster = points[labels == label]
+                    print(f'Cluster {label}: size={len(cluster)}, center={np.mean(cluster, axis=0)}')
 
 
 # LINE TRACKING BY USING CAMERA
