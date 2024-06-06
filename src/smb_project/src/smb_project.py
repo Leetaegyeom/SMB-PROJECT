@@ -10,6 +10,7 @@ import rospy, rospkg, time
 
 from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
+from ar_track_alvar_msgs.msg import AlvarMarkers
 
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
@@ -92,9 +93,10 @@ class IMG_PROCESSING:
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
         if all_lines is None:
-            return [], []
+            return [], [], 0
 
         left_x, right_x = [], []
+        horiz_line_num = 0
 
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
@@ -107,8 +109,37 @@ class IMG_PROCESSING:
             elif slope > 0.2 and x1 > WIDTH // 2:
                 right_x.append(x1)
                 right_x.append(x2)
+            
+            elif -0.2 <= slope & slope <= 0.2:
+                horiz_line_num += 1
                 
-        return left_x, right_x
+        return left_x, right_x, horiz_line_num
+    
+# AR TAG DETECTION & IDENTIFICATION
+class AR_TAG:
+    def __init__(self):
+        self.arData = {"ID":[], "DZ":[]}
+
+        rospy.Subscriber('ar_pose_marker', AlvarMarkers, self.AR_callback)
+
+    def AR_callback(self, data):
+        self.arData = {"ID":[], "DZ":[]}
+
+        for i in data.markers:
+            self.arData["ID"].append(i.id)
+            self.arData["DZ"].append(i.pose.pose.position.z)
+
+    def AR_detect(self):
+        min_ID = None
+        min_distance = float('inf')
+
+        if len(self.arData["ID"]) == 0:
+            return None, min_distance
+        
+        for idx, distance in enumerate(self.arData["DZ"]):
+            if distance < min_distance:
+                min_distance = distance
+                min_ID = self.arData["ID"][idx]
 
 
 # LINE TRACKING BY USING CAMERA
@@ -124,7 +155,7 @@ class CAM_DRIVING:
         while not self.img_proc.is_image_ready():
             RATE.sleep()
         
-        left_x, right_x = self.img_proc.find_line()
+        left_x, right_x, _ = self.img_proc.find_line()
         
         if left_x and right_x:
             x_left = sum(left_x) / len(left_x)
@@ -147,6 +178,22 @@ class CAM_DRIVING:
         self.prev_x_midpoint = x_midpoint
         
         return x_midpoint
+    
+    def detect_crosswalk(self):
+        while not self.img_proc.is_image_ready():
+            RATE.sleep()
+
+        horiz_line_threshold = 10
+        crosswalk_flag = None
+
+        _, _, horiz_line_num = self.img_proc.find_line()
+
+        if horiz_line_num > horiz_line_threshold:
+            crosswalk_flag = 1
+        else:
+            crosswalk_flag = 0
+
+        return crosswalk_flag
 
 
 # LINE TRACKING BY USING LIDAR
@@ -214,9 +261,12 @@ if __name__ == '__main__':
     xycar = CONTROL()
     cam_drive = CAM_DRIVING()
     lidar_drive = LIDAR_DRIVING()
+    ar_tag = AR_TAG()
     
     while not rospy.is_shutdown():
+        ar_ID, ar_distance = ar_tag.AR_detect()
         cam_midpoint = cam_drive.find_midpoint()
+        
         if cam_midpoint is None:
             midpoint = lidar_drive.find_midpoint()
         else:
