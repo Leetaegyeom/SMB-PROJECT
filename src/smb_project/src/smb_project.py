@@ -8,6 +8,7 @@ from sklearn.cluster import DBSCAN
 
 import rospy, rospkg, time
 
+from std_msgs.msg import Int64, String
 from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 from ar_track_alvar_msgs.msg import AlvarMarkers
@@ -115,6 +116,7 @@ class IMG_PROCESSING:
                 
         return left_x, right_x, horiz_line_num
     
+    
 # AR TAG DETECTION & IDENTIFICATION
 class AR_TAG:
     def __init__(self):
@@ -140,6 +142,34 @@ class AR_TAG:
             if distance < min_distance:
                 min_distance = distance
                 min_ID = self.arData["ID"][idx]
+
+
+# TRAFFIC LIGHT 
+class TRAFFIC_LIGHT:
+    def __init__(self):
+        self.single_color = None
+        self.prev_single_color = None
+        self.right_color = None
+        self.left_color = None
+        self.time_count = None
+
+        rospy.Subscriber("/Single_color", String, self.single_callback)
+        rospy.Subscriber("/Right_color", String, self.right_callback)
+        rospy.Subscriber("/Left_color", String, self.left_callback)
+        rospy.Subscriber("/time_count", Int64, self.time_callback)
+
+    def single_callback(self, data):
+        self.prev_single_color = self.single_color
+        self.single_color = data.data
+
+    def right_callback(self, data):
+        self.right_color = data.data
+
+    def left_callback(self, data):
+        self.left_color = data.data
+
+    def time_callback(self, data):
+        self.time_count = data.data
 
 
 # LINE TRACKING BY USING CAMERA
@@ -262,6 +292,7 @@ if __name__ == '__main__':
     cam_drive = CAM_DRIVING()
     lidar_drive = LIDAR_DRIVING()
     ar_tag = AR_TAG()
+    traffic_light = TRAFFIC_LIGHT()
     
     while not rospy.is_shutdown():
         ar_ID, ar_distance = ar_tag.AR_detect()
