@@ -114,7 +114,7 @@ class CAM_DRIVING:
         while not self.img_proc.is_image_ready():
             RATE.sleep()
         
-        left_x, right_x = self.img_proc.find_line()[0:2]
+        left_x, right_x, _ = self.img_proc.find_line()
         
         if left_x and right_x:
             x_left = sum(left_x) / len(left_x)
