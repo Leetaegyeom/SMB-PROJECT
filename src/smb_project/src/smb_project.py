@@ -13,6 +13,9 @@ from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 from ar_track_alvar_msgs.msg import AlvarMarkers
 
+rospy.init_node('xycar')
+
+
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 320
@@ -111,9 +114,11 @@ class IMG_PROCESSING:
                 right_x.append(x1)
                 right_x.append(x2)
             
-            elif -0.2 <= slope & slope <= 0.2:
+            elif -0.2 <= slope and slope <= 0.2:
                 horiz_line_num += 1
-                
+        
+        
+
         return left_x, right_x, horiz_line_num
     
     
@@ -178,6 +183,9 @@ class CAM_DRIVING:
     def __init__(self):
         self.img_proc = IMG_PROCESSING()
         self.prev_x_left = 0
+        self.x_left = 0
+        self.x_right = 0
+        self.x_midpoint = 0
         self.prev_x_right = 0
         self.prev_x_midpoint = WIDTH // 2
 
@@ -188,26 +196,26 @@ class CAM_DRIVING:
         left_x, right_x, _ = self.img_proc.find_line()
         
         if left_x and right_x:
-            x_left = sum(left_x) / len(left_x)
-            x_right = sum(right_x) / len(right_x)
-            x_midpoint = (x_left + x_right) // 2
+            self.x_left = sum(left_x) / len(left_x)
+            self.x_right = sum(right_x) / len(right_x)
+            self.x_midpoint = (self.x_left + self.x_right) // 2
             
         elif left_x:
-            x_left = sum(left_x) / len(left_x)
-            x_midpoint = x_left + (self.prev_x_midpoint - self.prev_x_left)
+            self.x_left = sum(left_x) / len(left_x)
+            self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
             
         elif right_x:
-            x_right = sum(right_x) / len(right_x)
-            x_midpoint = x_right + (self.prev_x_midpoint - self.prev_x_right)
+            self.x_right = sum(right_x) / len(right_x)
+            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
             
         else:
             return None
 
-        self.prev_x_left = x_left
-        self.prev_x_right = x_right
-        self.prev_x_midpoint = x_midpoint
+        self.prev_x_left = self.x_left
+        self.prev_x_right = self.x_right
+        self.prev_x_midpoint = self.x_midpoint
         
-        return x_midpoint
+        return self.x_midpoint
     
     def detect_crosswalk(self):
         while not self.img_proc.is_image_ready():
@@ -287,7 +295,6 @@ class LIDAR_DRIVING:
 
 # MAIN LOOP
 if __name__ == '__main__':
-    rospy.init_node('xycar')
     xycar = CONTROL()
     cam_drive = CAM_DRIVING()
     lidar_drive = LIDAR_DRIVING()
@@ -298,14 +305,16 @@ if __name__ == '__main__':
         ar_ID, ar_distance = ar_tag.AR_detect()
         cam_midpoint = cam_drive.find_midpoint()
         
-        if cam_midpoint is None:
-            midpoint = lidar_drive.find_midpoint()
-        else:
-            midpoint = cam_midpoint
+        # if cam_midpoint is None:
+        #     midpoint = lidar_drive.find_midpoint()
+        # else:
+        #     midpoint = cam_midpoint
         
+        midpoint = lidar_drive.find_midpoint()
+
         if midpoint is not None:
             angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
             speed = SPEED  # Adjust speed as necessary
             xycar.drive(angle, speed)
         
-        RATE.sleep()
+        # RATE.sleep()
