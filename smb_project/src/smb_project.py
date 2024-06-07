@@ -297,13 +297,16 @@ class LIDAR_DRIVING:
         rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
         self.lidar_points = None
         self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
-        self.LIDAR_ROI = [(0, 181), (540, 720)]
+        self.LIDAR_ROI = [(0, 181), (180, 361)]
+        self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
 
     def lidar_callback(self, data):
-        self.lidar_points = data.ranges
+        self.lidar_points = np.asarray(data.ranges)
+        # rospy.loginfo(self.lidar_points)
 
     def preprocess_lidar_data(self):
         if self.lidar_points is None:
+            rospy.loginfo("\n\n\n\n\n")
             return None
 
         ranges = np.array(self.lidar_points)
@@ -314,6 +317,8 @@ class LIDAR_DRIVING:
         return points
 
     def cluster(self, points):
+        rospy.loginfo(points)
+
         db = DBSCAN(eps=0.2, min_samples=3).fit(points)
         labels = db.labels_
 
@@ -328,24 +333,66 @@ class LIDAR_DRIVING:
     # FOR OBSTACLE AVOIDANCE(MISSION 3)
     def find_obstacle(self):
         points = self.preprocess_lidar_data()
+        # rospy.loginfo(points)
         center = self.cluster(points)
 
         xycacr2obstacle_vec = np.asarray(center)
-        xycacr2obstacle_theta = np.degrees(np.arctan2(xycacr2obstacle_vec[1], xycacr2obstacle_vec[0]))*self.THETA2INPUT
+        xycacr2obstacle_theta = np.degrees(np.arctan2(xycacr2obstacle_vec[0], xycacr2obstacle_vec[1]))*self.THETA2INPUT
         return xycacr2obstacle_theta
      
     # FOR TUNNEL DRIVING(MISSION 4)
     def find_midpoint(self):
         points = self.preprocess_lidar_data()
-        # 라이다 뒤집혀있으니까 이게 맞나 ? 위에서 좌표계변환할때 x y축 방향 알아야할듯
-        left_points = points[points[:, 0] > 0]
-        right_points = points[points[:, 0] < 0]
+        # rospy.loginfo(points)
+        # ??? ??????? ?? ?? ? ??? ??????? x y? ?? ?????
+        left_points = points[points[:, 1] > 0]
+        right_points = points[points[:, 1] < 0]
 
         right_wall_center = self.cluster(right_points)
         left_wall_center = self.cluster(left_points)
 
         total_center_x = (right_wall_center[0] + left_wall_center[0])/2
+
+        self.publish_wall_centers(right_wall_center, left_wall_center, (right_wall_center+left_wall_center)/2)
+
         return total_center_x
+
+    def publish_wall_centers(self, right_wall_center, left_wall_center, total_wall_center):
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
+
+        # RIGHT
+        right_point = Point()
+        right_point.x = right_wall_center[0]
+        right_point.y = right_wall_center[1]
+        right_point.z = 0
+        marker.points.append(right_point)
+
+        # LEFT
+        left_point = Point()
+        left_point.x = left_wall_center[0]
+        left_point.y = left_wall_center[1]
+        left_point.z = 0
+        marker.points.append(left_point)
+
+        # MID
+        mid_point = Point()
+        mid_point.x = total_wall_center[0]
+        mid_point.y = total_wall_center[1]
+        mid_point.z = 0
+        marker.points.append(mid_point)
+
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+        marker.color.a = 1.0
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+
+        self.wall_centers_pub.publish(marker)
 
 
 
