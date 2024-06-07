@@ -171,7 +171,7 @@ class IMG_PROCESSING:
             cv2.line(line_draw_img, (x_left,y_left), (x_right,y_right), (0,255, 0), 2)
             cv2.rectangle(line_draw_img, (x_midpoint-5, y_midpoint-5), (x_midpoint+5, y_midpoint+5), (255,0,0), 4)
                              
-            display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
+            display_img[self.ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
             cv2.imshow('Camera', display_img)
             cv2.waitKey(1)
             
