@@ -117,9 +117,65 @@ class IMG_PROCESSING:
             elif -0.2 <= slope and slope <= 0.2:
                 horiz_line_num += 1
         
-        
-
         return left_x, right_x, horiz_line_num
+    
+    def find_line_visualize(self):
+        img = self.image.copy()
+        display_img = img
+        self.img_ready = False
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur_gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
+        roi_edge_img = edge_img[self.ROI_ROW:HEIGHT, 0:WIDTH]
+        line_draw_img = img.copy
+        
+        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,50,20)
+        
+        left_x, right_x = [], []
+        left_y, right_y = [], []
+        horiz_line_num = 0
+        x_midpoint, y_midpoint = 0, 0
+        x_left, x_right = 0, 0
+        y_left, y_right = 0, 0
+        
+        if all_lines is not None:
+            for line in all_lines:
+                x1, y1, x2, y2 = line[0]
+                slope = (y2 - y1) / (x2 - x1 + 1e-6)
+                
+                if slope < -0.2 and x2 < WIDTH // 2:
+                    left_x.append(x1)
+                    left_x.append(x2)
+                    left_y.append(y1)
+                    left_y.append(y2)
+                    cv2.line(line_draw_img, (x1,y1), (x2,y2), (0,0,255), 2)
+                    
+                elif slope > 0.2 and x1 > WIDTH // 2:
+                    right_x.append(x1)
+                    right_x.append(x2)
+                    right_y.append(y1)
+                    right_y.append(y2)
+                    cv2.line(line_draw_img, (x1,y1), (x2,y2), (0,255,255), 2)
+                
+                elif -0.2 <= slope and slope <= 0.2:
+                    horiz_line_num += 1
+                    
+            x_left = int(sum(left_x) / len(left_x))
+            x_right = int(sum(right_x) / len(right_x))
+            y_left = int(sum(left_y) / len(left_y))
+            y_right = int(sum(right_y)/ len(right_y))
+            x_midpoint = (x_left + x_right) // 2
+            y_midpoint = (y_left + y_right) //2
+            
+            cv2.line(line_draw_img, (x_left,y_left), (x_right,y_right), (0,255, 0), 2)
+            cv2.rectangle(line_draw_img, (x_midpoint-5, y_midpoint-5), (x_midpoint+5, y_midpoint+5), (255,0,0), 4)
+                             
+            display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
+            cv2.imshow('Camera', display_img)
+            cv2.waitKey(1)
+            
+        return left_x, right_x, horiz_line_num       
     
     
 # AR TAG DETECTION & IDENTIFICATION
