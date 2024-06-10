@@ -15,6 +15,9 @@ from ar_track_alvar_msgs.msg import AlvarMarkers
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 
+from std_msgs.msg import Header, PointField
+from sensor_msgs.point_cloud2 import create_cloud
+
 rospy.init_node('xycar')
 
 
@@ -123,7 +126,7 @@ class IMG_PROCESSING:
     
     def find_line_visualize(self):
         img = self.image.copy()
-	line_draw_img = self.image.copy()[self.ROI_ROW:HEIGHT, 0:WIDTH]
+        line_draw_img = self.image.copy()[self.ROI_ROW:HEIGHT, 0:WIDTH]
         display_img = img
         self.img_ready = False
 
@@ -162,9 +165,9 @@ class IMG_PROCESSING:
                 
                 elif -0.2 <= slope and slope <= 0.2:
                     horiz_line_num += 1
-            if left_x:
-            	x_left = int(sum(left_x) / len(left_x))
-		y_left = int(sum(left_y) / len(left_y))
+        if left_x:
+            x_left = int(sum(left_x) / len(left_x))
+            y_left = int(sum(left_y) / len(left_y))
 	    if right_x:
             	x_right = int(sum(right_x) / len(right_x))
             	y_right = int(sum(right_y) / len(right_y))
@@ -342,14 +345,12 @@ class LIDAR_DRIVING:
         self.lidar_xy_points_pub = rospy.Publisher('/lidar_xy_points', Marker, queue_size=10)
         self.lidar_ready = False
         
-
     def lidar_callback(self, data):
         self.lidar_points = np.asarray(data.ranges)
         self.lidar_ready = True
 
     def preprocess_lidar_data(self):
         if self.lidar_points is None:
-            # rospy.loginfo("\n\n\n\n\n")
             return None
 
         ranges = np.array(self.lidar_points)
@@ -361,7 +362,8 @@ class LIDAR_DRIVING:
         return points
 
     def cluster(self, points):
-        # rospy.loginfo(points)
+        if len(points) < 1:
+            return None
 
         db = DBSCAN(eps=0.2, min_samples=3).fit(points)
         labels = db.labels_
@@ -396,8 +398,13 @@ class LIDAR_DRIVING:
         right_points = points[points[:, 1] < 0]
 
         right_wall_center = self.cluster(right_points)
-        left_wall_center = self.cluster(left_points)
+        if right_wall_center is None:
+            right_wall_center = [0,0]
 
+        left_wall_center = self.cluster(left_points)
+        if left_wall_center is None:
+            left_wall_center = [0,0]
+            
         total_center_x = (right_wall_center[0] + left_wall_center[0])/2
 
         self.publish_wall_centers(right_wall_center, left_wall_center, (right_wall_center+left_wall_center)/2)
@@ -405,27 +412,18 @@ class LIDAR_DRIVING:
         return total_center_x
 
     def publish_total_points(self, points):
-        marker = Marker()
-        marker.header.frame_id = "base_link"
-        marker.type = Marker.POINTS
-        marker.action = Marker.ADD
+        header = Header()
+        header.frame_id = "base_link"
 
-        # RIGHT
-        lidar_xy_point = Point()
-        lidar_xy_point.x = points[0]
-        lidar_xy_point.y = points[1]
-        lidar_xy_point.z = 0
-        marker.points.append(lidar_xy_point)
+        fields = [
+            PointField('x', 0, PointField.FLOAT32, 1),
+            PointField('y', 4, PointField.FLOAT32, 1),
+            PointField('z', 8, PointField.FLOAT32, 1)
+        ]
 
-        marker.scale.x = 0.2
-        marker.scale.y = 0.2
-        marker.scale.z = 0.2
-        marker.color.a = 0.0
-        marker.color.r = 0.0
-        marker.color.g = 1.0
-        marker.color.b = 0.0
+        cloud = create_cloud(header, fields, points)
+        self.lidar_xy_points_pub.publish(cloud)
 
-        self.lidar_xy_points_pub.publish(marker)
 
     def publish_wall_centers(self, right_wall_center, left_wall_center, total_wall_center):
         marker = Marker()
