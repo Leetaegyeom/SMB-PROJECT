@@ -15,7 +15,7 @@ from ar_track_alvar_msgs.msg import AlvarMarkers
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 
-from std_msgs.msg import Header, PointField
+from std_msgs.msg import Header
 from sensor_msgs.point_cloud2 import create_cloud
 
 rospy.init_node('xycar')
