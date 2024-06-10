@@ -9,7 +9,7 @@ from sklearn.cluster import DBSCAN
 import rospy, rospkg, time
 
 from std_msgs.msg import Int64, String
-from sensor_msgs.msg import Image, LaserScan
+from sensor_msgs.msg import Image, LaserScan, PointCloud2, PointField
 from xycar_motor.msg import xycar_motor
 from ar_track_alvar_msgs.msg import AlvarMarkers
 from visualization_msgs.msg import Marker
@@ -20,7 +20,7 @@ rospy.init_node('xycar')
 
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
-WIDTH, HEIGHT = 640, 320
+WIDTH, HEIGHT = 640, 480
 
 P_GAIN = 0.6
 I_GAIN = 0.006
@@ -78,7 +78,7 @@ class IMG_PROCESSING:
         self.bridge = CvBridge()
         self.img_ready = False
         self.CAM_FPS = 30
-        self.ROI_ROW = 250
+        self.ROI_ROW = 300
         self.ROI_HEIGHT = HEIGHT - self.ROI_ROW
         
     def img_callback(self, data):
@@ -86,7 +86,7 @@ class IMG_PROCESSING:
         self.img_ready = True
         
     def is_image_ready(self):
-        return self.img_ready and (not self.image.size == (WIDTH * HEIGHT * 3))
+        return self.img_ready and self.image.size == (WIDTH * HEIGHT * 3)
         
     def find_line(self):        
         img = self.image.copy()
@@ -123,6 +123,7 @@ class IMG_PROCESSING:
     
     def find_line_visualize(self):
         img = self.image.copy()
+	line_draw_img = self.image.copy()[self.ROI_ROW:HEIGHT, 0:WIDTH]
         display_img = img
         self.img_ready = False
 
@@ -130,7 +131,6 @@ class IMG_PROCESSING:
         blur_gray = cv2.GaussianBlur(gray, (5, 5), 0)
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
         roi_edge_img = edge_img[self.ROI_ROW:HEIGHT, 0:WIDTH]
-        line_draw_img = img.copy
         
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180,50,50,20)
         
@@ -162,22 +162,29 @@ class IMG_PROCESSING:
                 
                 elif -0.2 <= slope and slope <= 0.2:
                     horiz_line_num += 1
-                    
-            x_left = int(sum(left_x) / len(left_x))
-            x_right = int(sum(right_x) / len(right_x))
-            y_left = int(sum(left_y) / len(left_y))
-            y_right = int(sum(right_y)/ len(right_y))
+            if left_x:
+            	x_left = int(sum(left_x) / len(left_x))
+		y_left = int(sum(left_y) / len(left_y))
+	    if right_x:
+            	x_right = int(sum(right_x) / len(right_x))
+            	y_right = int(sum(right_y) / len(right_y))
+
             x_midpoint = (x_left + x_right) // 2
-            y_midpoint = (y_left + y_right) //2
+            y_midpoint = (y_left + y_right) // 2
             
             cv2.line(line_draw_img, (x_left,y_left), (x_right,y_right), (0,255, 0), 2)
             cv2.rectangle(line_draw_img, (x_midpoint-5, y_midpoint-5), (x_midpoint+5, y_midpoint+5), (255,0,0), 4)
                              
             display_img[self.ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
             cv2.imshow('Camera', display_img)
+            #cv2.imshow('Camera', line_draw_img)
             cv2.waitKey(1)
             
-        return left_x, right_x, horiz_line_num       
+        return left_x, right_x, horiz_line_num
+
+    def get_img(self):
+	if self.img_ready:
+	    return self.image.copy()
     
     
 # AR TAG DETECTION & IDENTIFICATION
@@ -251,7 +258,7 @@ class CAM_DRIVING:
         while not self.img_proc.is_image_ready():
             RATE.sleep()
         
-        left_x, right_x, _ = self.img_proc.find_line()
+        left_x, right_x, _ = self.img_proc.find_line_visualize()
         
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
@@ -275,6 +282,37 @@ class CAM_DRIVING:
         
         return self.x_midpoint
     
+    def find_mindpoint_visulaize(self):
+        while not self.img_proc.is_image_ready():
+            RATE.sleep()
+
+        tmp_img = self.img_proc.get_img()
+	
+
+        left_x, right_x, _ = self.img_proc.find_line()
+        
+        if left_x and right_x:
+            self.x_left = sum(left_x) / len(left_x)
+            self.x_right = sum(right_x) / len(right_x)
+            self.x_midpoint = (self.x_left + self.x_right) // 2
+            
+        elif left_x:
+            self.x_left = sum(left_x) / len(left_x)
+            self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
+            
+        elif right_x:
+            self.x_right = sum(right_x) / len(right_x)
+            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
+            
+        else:
+            return None
+
+        self.prev_x_left = self.x_left
+        self.prev_x_right = self.x_right
+        self.prev_x_midpoint = self.x_midpoint
+        
+        return self.x_midpoint
+
     def detect_crosswalk(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
@@ -282,7 +320,7 @@ class CAM_DRIVING:
         horiz_line_threshold = 10
         crosswalk_flag = None
 
-        _, _, horiz_line_num = self.img_proc.find_line()
+        _, _, horiz_line_num = self.img_proc.find_line_visualize()
 
         if horiz_line_num > horiz_line_threshold:
             crosswalk_flag = 1
@@ -301,25 +339,29 @@ class LIDAR_DRIVING:
         self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
         self.LIDAR_ROI = [(0, 181), (180, 361)]
         self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
+        self.lidar_xy_points_pub = rospy.Publisher('/lidar_xy_points', Marker, queue_size=10)
+        self.lidar_ready = False
+        
 
     def lidar_callback(self, data):
         self.lidar_points = np.asarray(data.ranges)
-        # rospy.loginfo(self.lidar_points)
+        self.lidar_ready = True
 
     def preprocess_lidar_data(self):
         if self.lidar_points is None:
-            rospy.loginfo("\n\n\n\n\n")
+            # rospy.loginfo("\n\n\n\n\n")
             return None
 
         ranges = np.array(self.lidar_points)
-        valid_idx = (ranges > 0.1) & (ranges < 10.0)        # Adjust the min and max range as necessary
+        valid_idx = (ranges > 0.1) & (ranges < 10.0)
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
+        self.publish_total_points(points)
 
         return points
 
     def cluster(self, points):
-        rospy.loginfo(points)
+        # rospy.loginfo(points)
 
         db = DBSCAN(eps=0.2, min_samples=3).fit(points)
         labels = db.labels_
@@ -334,8 +376,10 @@ class LIDAR_DRIVING:
 
     # FOR OBSTACLE AVOIDANCE(MISSION 3)
     def find_obstacle(self):
+        while not self.lidar_ready:
+            RATE.sleep()
+
         points = self.preprocess_lidar_data()
-        # rospy.loginfo(points)
         center = self.cluster(points)
 
         xycacr2obstacle_vec = np.asarray(center)
@@ -344,9 +388,10 @@ class LIDAR_DRIVING:
      
     # FOR TUNNEL DRIVING(MISSION 4)
     def find_midpoint(self):
+        while not self.lidar_ready:
+            RATE.sleep()
+
         points = self.preprocess_lidar_data()
-        # rospy.loginfo(points)
-        # ??? ??????? ?? ?? ? ??? ??????? x y? ?? ?????
         left_points = points[points[:, 1] > 0]
         right_points = points[points[:, 1] < 0]
 
@@ -358,6 +403,29 @@ class LIDAR_DRIVING:
         self.publish_wall_centers(right_wall_center, left_wall_center, (right_wall_center+left_wall_center)/2)
 
         return total_center_x
+
+    def publish_total_points(self, points):
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
+
+        # RIGHT
+        lidar_xy_point = Point()
+        lidar_xy_point.x = points[0]
+        lidar_xy_point.y = points[1]
+        lidar_xy_point.z = 0
+        marker.points.append(lidar_xy_point)
+
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+        marker.color.a = 0.0
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+
+        self.lidar_xy_points_pub.publish(marker)
 
     def publish_wall_centers(self, right_wall_center, left_wall_center, total_wall_center):
         marker = Marker()
@@ -408,18 +476,19 @@ if __name__ == '__main__':
     
     while not rospy.is_shutdown():
         ar_ID, ar_distance = ar_tag.AR_detect()
-        cam_midpoint = cam_drive.find_midpoint()
+        # cam_midpoint = cam_drive.find_midpoint()
         
         # if cam_midpoint is None:
         #     midpoint = lidar_drive.find_midpoint()
         # else:
         #     midpoint = cam_midpoint
         
+        # midpoint = cam_midpoint
         midpoint = lidar_drive.find_midpoint()
 
         if midpoint is not None:
             angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
-            speed = SPEED  # Adjust speed as necessary
+            speed = 0 # Adjust speed as necessary
             xycar.drive(angle, speed)
         
         # RATE.sleep()
