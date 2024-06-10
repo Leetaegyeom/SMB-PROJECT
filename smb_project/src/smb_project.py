@@ -15,16 +15,14 @@ from ar_track_alvar_msgs.msg import AlvarMarkers
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 
-from std_msgs.msg import Header
-from sensor_msgs.point_cloud2 import create_cloud
-
 rospy.init_node('xycar')
 
 
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 300
+ROI_ROW = 280
+ROI_OFFSET = 50
 
 P_GAIN = 0.6
 I_GAIN = 0.006
@@ -82,7 +80,7 @@ class IMG_PROCESSING:
         self.bridge = CvBridge()
         self.img_ready = False
         self.CAM_FPS = 30
-        self.ROI_HEIGHT = HEIGHT - ROI_ROW
+        self.ROI_HEIGHT = HEIGHT - ROI_ROW - ROI_OFFSET
         
     def img_callback(self, data):
         self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -98,11 +96,11 @@ class IMG_PROCESSING:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blur_gray = cv2.GaussianBlur(gray, (5, 5), 0)
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
-        roi_edge_img = edge_img[self.ROI_ROW:HEIGHT, 0:WIDTH]
+        roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
         if all_lines is None:
-            return [], [], 0
+            return [], [], [], [], 0
 
         left_x, right_x = [], []
         left_y, right_y = [], []
@@ -112,22 +110,25 @@ class IMG_PROCESSING:
             x1, y1, x2, y2 = line[0]
             slope = (y2 - y1) / (x2 - x1 + 1e-6)
 
-            if slope < -0.2 and x2 < WIDTH // 2:
+            if slope < 0.1 and x2 < WIDTH // 2:
                 left_x.append(x1)
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
                 
-            elif slope > 0.2 and x1 > WIDTH // 2:
+            elif slope > 0.1 and x1 > WIDTH // 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
                 right_y.append(y2)                
             
-            elif -0.2 <= slope and slope <= 0.2:
+            if -0.2 <= slope and slope <= 0.2:
                 horiz_line_num += 1
         
         return left_x, right_x, left_y, right_y, horiz_line_num
+
+    def get_img(self):
+        return self.image.copy()
     
     
 # AR TAG DETECTION & IDENTIFICATION
@@ -208,7 +209,7 @@ class CAM_DRIVING:
         while not self.img_proc.is_image_ready():
             RATE.sleep()
         
-        left_x, right_x, _, _, _ = self.img_proc.find_line_visualize()
+        left_x, right_x, _, _, _ = self.img_proc.find_line()
         
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
@@ -238,7 +239,7 @@ class CAM_DRIVING:
             
         img = self.img_proc.get_img()
         display_img = img
-        line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
+        line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
         
         left_x, right_x, left_y, right_y, _ = self.img_proc.find_line()
         
@@ -265,20 +266,21 @@ class CAM_DRIVING:
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
+	    self.x_midpoint = (self.x_midpoint + self.x_left) // 2	# Test!!!!
             cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
-            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,255,255), 4)
+            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
             
         elif right_x:
             self.x_right = sum(right_x) / len(right_x)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
             cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
-            cv2.rectangle(line_img, (self.prev_x_left-5, self.prev_y_left-5), (self.prev_x_left+5, self.prev_y_left+5), (0,255,255), 4)
+            cv2.rectangle(line_img, (self.prev_x_left-5, self.prev_y_left-5), (self.prev_x_left+5, self.prev_y_left+5), (0,0,255), 4)
                     
         else:
             return None
 
         cv2.rectangle(line_img, (self.x_midpoint-5, self.y_midpoint-5), (self.x_midpoint+5, self.y_midpoint+5), (255,0,0), 4)
-        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img
+        display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img
         cv2.imshow('Camera', display_img)
         cv2.waitKey(1)
         
@@ -332,7 +334,8 @@ class LIDAR_DRIVING:
         valid_idx = (ranges > 0.1) & (ranges < 10.0)
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
-        self.publish_total_points(points)
+        
+        self.publish_lidar_points(points)
 
         return points
 
@@ -386,19 +389,28 @@ class LIDAR_DRIVING:
 
         return total_center_x
 
-    def publish_total_points(self, points):
-        header = Header()
-        header.frame_id = "base_link"
+    def publish_lidar_points(self, points):
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
 
-        fields = [
-            PointField('x', 0, PointField.FLOAT32, 1),
-            PointField('y', 4, PointField.FLOAT32, 1),
-            PointField('z', 8, PointField.FLOAT32, 1)
-        ]
+        for point in points:
+            p = Point()
+            p.x = point[0]
+            p.y = point[1]
+            p.z = 0
+            marker.points.append(p)
 
-        cloud = create_cloud(header, fields, points)
-        self.lidar_xy_points_pub.publish(cloud)
+        marker.scale.x = 0.1
+        marker.scale.y = 0.1
+        marker.scale.z = 0.1
+        marker.color.a = 1.0
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
 
+        self.lidar_xy_points_pub.publish(marker)
 
     def publish_wall_centers(self, right_wall_center, left_wall_center, total_wall_center):
         marker = Marker()
@@ -449,15 +461,15 @@ if __name__ == '__main__':
     
     while not rospy.is_shutdown():
         ar_ID, ar_distance = ar_tag.AR_detect()
-        # cam_midpoint = cam_drive.find_midpoint()
+        cam_midpoint = cam_drive.find_midpoint_visualize()
         
         # if cam_midpoint is None:
         #     midpoint = lidar_drive.find_midpoint()
         # else:
         #     midpoint = cam_midpoint
         
-        # midpoint = cam_midpoint
-        midpoint = lidar_drive.find_midpoint()
+        midpoint = cam_midpoint
+        # midpoint = lidar_drive.find_midpoint()
 
         if midpoint is not None:
             angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
