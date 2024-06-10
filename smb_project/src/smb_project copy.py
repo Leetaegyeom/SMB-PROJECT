@@ -21,6 +21,7 @@ rospy.init_node('xycar')
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 320
+ROI_ROW = 300
 
 P_GAIN = 0.6
 I_GAIN = 0.006
@@ -245,11 +246,17 @@ class CAM_DRIVING:
         self.img_proc = IMG_PROCESSING()
         self.prev_x_left = 0
         self.x_left = 0
+        self.y_left = ROI_ROW
         self.x_right = WIDTH
+        self.y_right = ROI_ROW
         self.x_midpoint = WIDTH // 2
+        self.y_midpoint = ROI_ROW
         self.prev_x_left = 0
+        self.prev_y_left = ROI_ROW
         self.prev_x_right = WIDTH
+        self.prev_y_right = ROI_ROW
         self.prev_x_midpoint = WIDTH // 2
+        self.prev_y_midpoint = ROI_ROW
 
     def find_midpoint(self):
         while not self.img_proc.is_image_ready():
@@ -285,31 +292,58 @@ class CAM_DRIVING:
             
         img = self.img_proc.get_img()
         display_img = img
-        line_img = img.copy()
+        line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
         
         left_x, right_x, left_y, right_y, _ = self.img_proc.find_line()
         
+        for i in range(0, len(left_x), 2):
+            x1, x2 = left_x[i], left_x[i+1]
+            y1, y2 = left_y[i], left_y[i+1]
+            cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        
+        for i in range(0, len(right_x), 2):
+            x1, x2 = right_x[i], right_x[i+1]
+            y1, y2 = right_y[i], right_y[i+1]
+            cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                    
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
+            self.y_left = sum(left_y) / len(left_y)
             self.x_right = sum(right_x) / len(right_x)
+            self.y_right = sum(right_y) / len(right_y)            
             self.x_midpoint = (self.x_left + self.x_right) // 2
+            self.y_midpoint = (self.y_left + self.y_right) // 2
+            cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
+            cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
             
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
+            cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
+            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,255,255), 4)
             
         elif right_x:
             self.x_right = sum(right_x) / len(right_x)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
-            
+            cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
+            cv2.rectangle(line_img, (self.prev_x_left-5, self.prev_y_left-5), (self.prev_x_left+5, self.prev_y_left+5), (0,255,255), 4)
+                    
         else:
             return None
 
-        self.prev_x_left = self.x_left
-        self.prev_x_right = self.x_right
-        self.prev_x_midpoint = self.x_midpoint
+        cv2.rectangle(line_img, (self.x_midpoint-5, self.y_midpoint-5), (self.x_midpoint+5, self.y_midpoint+5), (255,0,0), 4)
+        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img
+        cv2.imshow('Camera', display_img)
+        cv2.waitKey(1)
         
-        return self.x_midpoint    
+        self.prev_x_left = self.x_left
+        self.prev_y_left = self.y_left
+        self.prev_x_right = self.x_right
+        self.prev_y_right = self.y_right
+        self.prev_x_midpoint = self.x_midpoint
+        self.prev_y_midpoint = self.y_midpoint
+        
+        return self.x_midpoint
     
     def detect_crosswalk(self):
         while not self.img_proc.is_image_ready():
