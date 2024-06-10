@@ -12,6 +12,8 @@ from std_msgs.msg import Int64, String
 from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 from ar_track_alvar_msgs.msg import AlvarMarkers
+from visualization_msgs.msg import Marker
+from geometry_msgs.msg import Point
 
 rospy.init_node('xycar')
 
