@@ -379,7 +379,7 @@ class CAM_DRIVING:
         horiz_line_threshold = 10
         crosswalk_flag = None
 
-        _, _, horiz_line_num = self.img_proc.find_line_visualize()
+        _, _, _, _, horiz_line_num = self.img_proc.find_line_visualize()
 
         if horiz_line_num > horiz_line_threshold:
             crosswalk_flag = 1
@@ -573,9 +573,12 @@ if __name__ == '__main__':
     lidar_drive = LIDAR_DRIVING()
     ar_tag = AR_TAG()
     traffic_light = TRAFFIC_LIGHT()
+
+    speed = 0
     
     while not rospy.is_shutdown():
         ar_ID, ar_distance = ar_tag.AR_detect()
+        crosswalk_flag = cam_drive.detect_crosswalk()
         # cam_midpoint = cam_drive.find_midpoint_visualize()
         
         # if cam_midpoint is None:
@@ -597,8 +600,6 @@ if __name__ == '__main__':
         midpoint = lidar_drive.find_midpoint()
         if midpoint is not None:
             angle = xycar.pid(midpoint, "TUNNEL DRIVING")
-            speed = 0 # Adjust speed as necessary
-            xycar.drive(angle, speed)
         ############################################################################
 
         ######################[AVOID OBSTACLE TEST]###################################
@@ -608,13 +609,24 @@ if __name__ == '__main__':
         # xycar.drive(angle, speed)
         ###########################################################################
 
-        if ar_ID == 2:
-            gostop, direction = traffic_light.traffic_crossroad()
-            if ar_distance < 0.1:
+        if ar_ID is not None and ar_distance is not None:
+            if ar_ID == 4:
+                gostop, direction = traffic_light.traffic_crossroad()
+                if ar_distance < 0.1:
+                    speed = 0
+                elif direction is not None:
+                    if direction == 'left':
+
+                        pass
+                    
+                    elif direction == 'right':
+
+                        pass
+            elif ar_ID == 2:
+                gostop = traffic_light.traffic_single()
+
+        if crosswalk_flag == 1:
+            if gostop == 'stop':
                 speed = 0
 
-        if ar_ID == 4:
-            gostop = traffic_light.traffic_single()
-
-        if ar_ID == 6 and ar_distance < 0.1:
-            midpoint = lidar_drive.find_midpoint()
+        xycar.drive()
