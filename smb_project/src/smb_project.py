@@ -344,7 +344,6 @@ class CAM_DRIVING:
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
-            self.x_midpoint = (self.x_midpoint + self.x_left) // 2	
             cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
             
@@ -353,10 +352,12 @@ class CAM_DRIVING:
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
             cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
             cv2.rectangle(line_img, (self.prev_x_left-5, self.prev_y_left-5), (self.prev_x_left+5, self.prev_y_left+5), (0,0,255), 4)
-                    
-        else:
-            return None
 
+        else:
+            self.x_midpoint = 50
+            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
+            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
+            
         cv2.rectangle(line_img, (self.x_midpoint-5, self.y_midpoint-5), (self.x_midpoint+5, self.y_midpoint+5), (255,0,0), 4)
         display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img
         cv2.imshow('Camera', display_img)
