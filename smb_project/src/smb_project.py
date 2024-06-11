@@ -53,7 +53,7 @@ class CONTROL:
         self.ki = 0
         self.kd = 0
         
-    def pid(self, input_data, type):
+    def pid(self, input_data, type="LINE TRACKING"):
         if type == "LINE TRACKING":
             error = WIDTH // 2 - input_data
             self.kp = P_GAIN_CAM
@@ -117,8 +117,14 @@ class IMG_PROCESSING:
         img = self.image.copy()
         self.img_ready = False
 
+        # Histogram Equalize
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blur_gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        hist_equalized = cv2.equalizeHist(gray)
+        
+        # GaussianBlur
+        blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
+        
+        # Canny Edge Detection
         edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
         roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
 
@@ -180,6 +186,8 @@ class AR_TAG:
             if distance < min_distance:
                 min_distance = distance
                 min_ID = self.arData["ID"][idx]
+                
+        return min_ID, min_distance
 
 
 # TRAFFIC LIGHT 
