@@ -190,6 +190,46 @@ class TRAFFIC_LIGHT:
     def time_callback(self, data):
         self.time_count = data.data
 
+    def traffic_single(self):
+        gostop = None
+
+        if self.single_color is None:
+            return None
+
+        if self.single_color == 'G':
+            gostop = 'go'
+        
+        elif self.single_color == 'Y':
+            if self.prev_single_color == 'G':
+                gostop = 'go'
+            
+            elif self.prev_single_color == 'Y':
+                gostop = 'stop'
+            
+        elif self.single_color == 'R':
+            gostop =  'stop'
+
+        return gostop
+    
+    def traffic_crossroad(self):
+        direction = None
+        gostop = None
+
+        if self.left_color is None or self.right_color is None or self.time_count is None:
+            return None, None
+
+        if 3 <= self.time_count:
+            gostop = 'go'
+        else:
+            gostop = 'stop'
+
+        if self.left_color == 'R':
+            direction = 'right'
+        else:
+            direction = 'left'
+
+        return gostop, direction
+        
 
 # LINE TRACKING BY USING CAMERA
 # USAGE : TWO LINE TRACKING(MISSION 1), ONE LINE TRACKING(MISSION 2) 
@@ -271,7 +311,7 @@ class CAM_DRIVING:
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
-	    self.x_midpoint = (self.x_midpoint + self.x_left) // 2	# Test!!!!
+            self.x_midpoint = (self.x_midpoint + self.x_left) // 2	
             cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
             
@@ -519,3 +559,14 @@ if __name__ == '__main__':
             xycar.drive(angle, speed)
         
         # RATE.sleep()
+
+        if ar_ID == 2:
+            gostop, direction = traffic_light.traffic_crossroad()
+            if ar_distance < 0.1:
+                speed = 0
+
+        if ar_ID == 4:
+            gostop = traffic_light.traffic_single()
+
+        if ar_ID == 6 and ar_distance < 0.1:
+            midpoint = lidar_drive.find_midpoint()
