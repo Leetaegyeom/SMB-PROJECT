@@ -9,11 +9,11 @@ from sklearn.cluster import DBSCAN
 import rospy, rospkg, time
 
 from std_msgs.msg import Int64, String
-from sensor_msgs.msg import Image, LaserScan, PointCloud2, PointField
+from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
 from ar_track_alvar_msgs.msg import AlvarMarkers
 from visualization_msgs.msg import Marker
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Vector3
 
 rospy.init_node('xycar')
 
@@ -38,7 +38,7 @@ D_GAIN_OBS = 0.0
 
 SPEED = 5
 THETA = 0
-CENTER_X = 0
+THETA_90 = 90
 
 # SEND CONTROL MESSAGE TO XYCAR
 class CONTROL:
@@ -67,7 +67,7 @@ class CONTROL:
             self.kd = D_GAIN_OBS
 
         elif type == "TUNNEL DRIVING":
-            error = CENTER_X - input_data
+            error = THETA_90 - input_data
             self.kp = P_GAIN_TUNNEL
             self.ki = I_GAIN_TUNNEL
             self.kd = D_GAIN_TUNNEL
@@ -400,6 +400,7 @@ class LIDAR_DRIVING:
         self.lidar_xy_points_pub_left = rospy.Publisher('/lidar_xy_points_left', Marker, queue_size=10)
         self.clustered_points_pub_right = rospy.Publisher('/clustered_points_right', Marker, queue_size=10)
         self.clustered_points_pub_left = rospy.Publisher('/clustered_points_left', Marker, queue_size=10)
+        self.vector_publisher = rospy.Publisher('/min_max_vector', Vector3, queue_size=10)
 
         self.lidar_points = None
         self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
@@ -433,7 +434,13 @@ class LIDAR_DRIVING:
 
         largest_cluster = max(clusters, key=len)
         center = np.mean(largest_cluster, axis=0)
-        return center, largest_cluster
+
+        largest_cluster_indices = np.where(labels == np.argmax(np.bincount(labels[labels != -1])))[0]
+
+        max_y_index = largest_cluster_indices[np.argmax(largest_cluster[:, 1])]
+        min_y_index = largest_cluster_indices[np.argmin(largest_cluster[:, 1])]
+
+        return center, largest_cluster, max_y_index, min_y_index
 
     # FOR OBSTACLE AVOIDANCE(MISSION 3)
     def find_obstacle(self):
@@ -455,7 +462,6 @@ class LIDAR_DRIVING:
         points = self.preprocess_lidar_data()
         left_points = points[points[:, 0] > 0]
         right_points = points[points[:, 0] < 0]
-
         self.publish_lidar_points(right_points, "right")
         self.publish_lidar_points(left_points, "left")
 
@@ -463,21 +469,35 @@ class LIDAR_DRIVING:
                 right_wall_center = np.array([0, 0])
                 right_cluster = np.array([[0, 0]])
         else:
-            right_wall_center, right_cluster = self.cluster(right_points)
+            right_wall_center, right_cluster, right_ymax_idx, right_ymin_idx = self.cluster(right_points)
         self.publish_clustered_points(right_cluster, "right")
+        right_max_point = right_points[right_ymax_idx]
+        right_min_point = right_points[right_ymin_idx]
 
         if len(left_points) == 0:
             left_wall_center = np.array([0, 0])
             left_cluster = np.array([[0, 0]])
         else:
-            left_wall_center, left_cluster = self.cluster(left_points)
+            left_wall_center, left_cluster, left_ymax_idx, left_ymin_idx = self.cluster(left_points)
         self.publish_clustered_points(left_cluster, "left")
-            
-        total_center_x = (right_wall_center[0] + left_wall_center[0])/2
+        left_max_point = left_points[left_ymax_idx]
+        left_min_point = left_points[left_ymin_idx]
 
-        self.publish_wall_centers(right_wall_center, left_wall_center, (right_wall_center+left_wall_center)/2)
+        self.publish_wall_centers(right_wall_center, left_wall_center)
 
-        return -total_center_x
+        mid_max_point = (right_max_point + right_min_point)/2
+        mid_min_point  = (left_max_point + left_min_point)/2
+        min_max_vec = mid_max_point - mid_min_point
+        ref_angle = np.degrees(np.arctan(min_max_vec))
+
+        return ref_angle
+    
+    def publish_ref_vector(self, vector):
+        vector_msg = Vector3()
+        vector_msg.x = vector[0]
+        vector_msg.y = vector[1]
+        vector_msg.z = 0 
+        self.vector_publisher.publish(vector_msg)
 
     def publish_lidar_points(self, points, value):
         marker = Marker()
@@ -504,7 +524,7 @@ class LIDAR_DRIVING:
         elif value == "left":
             self.lidar_xy_points_pub_left.publish(marker)
 
-    def publish_wall_centers(self, right_wall_center, left_wall_center, total_wall_center):
+    def publish_wall_centers(self, right_wall_center, left_wall_center):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
@@ -523,13 +543,6 @@ class LIDAR_DRIVING:
         left_point.y = left_wall_center[1]
         left_point.z = 0.1
         marker.points.append(left_point)
-
-        # MID
-        mid_point = Point()
-        mid_point.x = total_wall_center[0]
-        mid_point.y = total_wall_center[1]
-        mid_point.z = 0.1
-        marker.points.append(mid_point)
 
         marker.scale.x = 0.2
         marker.scale.y = 0.2
