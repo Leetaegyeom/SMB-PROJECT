@@ -24,13 +24,17 @@ WIDTH, HEIGHT = 640, 480
 ROI_ROW = 280
 ROI_OFFSET = 50
 
-# P_GAIN = 0.6
-# I_GAIN = 0.006
-# D_GAIN = 0.001
+P_GAIN_CAM = 0.6
+I_GAIN_CAM = 0.006
+D_GAIN_CAM = 0.001
 
-P_GAIN = 1000
-I_GAIN = 0.006
-D_GAIN = 0.001
+P_GAIN_TUNNEL = 1000
+I_GAIN_TUNNEL = 0.006
+D_GAIN_TUNNEL = 100
+
+P_GAIN_OBS = 1000
+I_GAIN_OBS = 0.006
+D_GAIN_OBS = 0.001
 
 SPEED = 5
 THETA = 0
@@ -45,19 +49,34 @@ class CONTROL:
         self.prev_error = 0.0
         self.ANGLE_LIMIT = 50
         
-    def pid(self, input_data, kp, ki, kd, type):
+        self.kp = 0
+        self.ki = 0
+        self.kd = 0
+        
+    def pid(self, input_data, type):
         if type == "LINE_TRACKING":
             error = WIDTH // 2 - input_data
+            self.kp = P_GAIN_CAM
+            self.ki = I_GAIN_CAM
+            self.kd = D_GAIN_CAM
+
         elif type == "AVOID OBSTACLE":
             error = THETA - input_data
+            self.kp = P_GAIN_OBS
+            self.ki = I_GAIN_OBS
+            self.kd = D_GAIN_OBS
+
         elif type == "TUNNEL DRIVING":
             error = CENTER_X - input_data
+            self.kp = P_GAIN_TUNNEL
+            self.ki = I_GAIN_TUNNEL
+            self.kd = D_GAIN_TUNNEL
             
         derror = error - self.prev_error
 
-        p_error = kp * error
-        self.i_error = self.i_error + ki * error * CONTROL_TIME
-        d_error = kd * derror / CONTROL_TIME
+        p_error = self.kp * error
+        self.i_error = self.i_error + self.ki * error * CONTROL_TIME
+        d_error = self.kd * derror / CONTROL_TIME
 
         output = p_error + self.i_error + d_error
         self.prev_error = error
@@ -384,7 +403,6 @@ class LIDAR_DRIVING:
         valid_idx = (ranges > 0.1) & (ranges < 10.0)
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
-        
         return points
 
     def cluster(self, points):
@@ -554,7 +572,7 @@ if __name__ == '__main__':
         midpoint = lidar_drive.find_midpoint()
         if midpoint is not None:
             # angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
-            angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "TUNNEL DRIVING")
+            angle = xycar.pid(midpoint, "TUNNEL DRIVING")
             speed = 0 # Adjust speed as necessary
             xycar.drive(angle, speed)
         
