@@ -401,7 +401,7 @@ class LIDAR_DRIVING:
 
         ranges = np.array(self.lidar_points)
         valid_idx = (ranges > 0.1) & (ranges < 10.0)
-        points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
+        points = np.column_stack((ranges[valid_idx] * np.cos(np.lins-pace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
         return points
 
