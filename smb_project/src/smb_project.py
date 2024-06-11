@@ -28,9 +28,9 @@ P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
 D_GAIN_CAM = 0.001
 
-P_GAIN_TUNNEL = 1000
-I_GAIN_TUNNEL = 0.006
-D_GAIN_TUNNEL = 100
+P_GAIN_TUNNEL = 500
+I_GAIN_TUNNEL = 0.0
+D_GAIN_TUNNEL = 0.0
 
 P_GAIN_OBS = 1000
 I_GAIN_OBS = 0.006
@@ -499,21 +499,21 @@ class LIDAR_DRIVING:
         right_point = Point()
         right_point.x = right_wall_center[0]
         right_point.y = right_wall_center[1]
-        right_point.z = 0
+        right_point.z = 0.1
         marker.points.append(right_point)
 
         # LEFT
         left_point = Point()
         left_point.x = left_wall_center[0]
         left_point.y = left_wall_center[1]
-        left_point.z = 0
+        left_point.z = 0.1
         marker.points.append(left_point)
 
         # MID
         mid_point = Point()
         mid_point.x = total_wall_center[0]
         mid_point.y = total_wall_center[1]
-        mid_point.z = 0
+        mid_point.z = 0.1
         marker.points.append(mid_point)
 
         marker.scale.x = 0.2
@@ -536,7 +536,7 @@ class LIDAR_DRIVING:
             p = Point()
             p.x = point[0]
             p.y = point[1]
-            p.z = 0
+            p.z = 0.05
             marker.points.append(p)
 
         marker.scale.x = 0.1

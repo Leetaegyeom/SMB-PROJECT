@@ -60,35 +60,36 @@ Visualization Manager:
       Value: false
     - Class: rviz/Marker
       Enabled: false
-      Marker Topic: /lidar_xy_points
-      Name: LIDAR_XY
+      Marker Topic: /clustered_points_left
+      Name: CLUSTER_LEFT
       Namespaces:
         {}
       Queue Size: 100
       Value: false
-    - Class: rviz/Axes
+    - Class: rviz/Marker
       Enabled: false
-      Length: 0.5
-      Name: Axes
-      Radius: 0.0500000007
-      Reference Frame: <Fixed Frame>
-      Value: false
-    - Class: rviz/Marker
-      Enabled: true
-      Marker Topic: /clustered_points_left
-      Name: CLUSTER_LEFT
-      Namespaces:
-        "": true
-      Queue Size: 100
-      Value: true
-    - Class: rviz/Marker
-      Enabled: true
       Marker Topic: /clustered_points_right
       Name: CLUSTER_RIGHT
       Namespaces:
-        "": true
+        {}
       Queue Size: 100
-      Value: true
+      Value: false
+    - Class: rviz/Marker
+      Enabled: false
+      Marker Topic: /lidar_xy_points_left
+      Name: LIDAR_XY_LEFT
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
+    - Class: rviz/Marker
+      Enabled: false
+      Marker Topic: /lidar_xy_points_right
+      Name: LIDAR_XY_RIGHT
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -114,25 +115,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 8.16224575
+      Distance: 8.02294731
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.353601038
-        Y: -0.493327945
-        Z: 0.410382628
+        X: 0.783067346
+        Y: 0.0693315864
+        Z: 0.418688208
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 1.47479641
+      Pitch: 1.55479634
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.61539745
+      Yaw: 4.75040293
     Saved: ~
 Window Geometry:
   Displays:
