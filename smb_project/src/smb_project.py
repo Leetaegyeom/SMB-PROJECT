@@ -32,9 +32,9 @@ P_GAIN_TUNNEL = 500
 I_GAIN_TUNNEL = 0.0
 D_GAIN_TUNNEL = 0.0
 
-P_GAIN_OBS = 1000
-I_GAIN_OBS = 0.006
-D_GAIN_OBS = 0.001
+P_GAIN_OBS = 1
+I_GAIN_OBS = 0.0
+D_GAIN_OBS = 0.0
 
 SPEED = 5
 THETA = 0
@@ -54,7 +54,7 @@ class CONTROL:
         self.kd = 0
         
     def pid(self, input_data, type):
-        if type == "LINE_TRACKING":
+        if type == "LINE TRACKING":
             error = WIDTH // 2 - input_data
             self.kp = P_GAIN_CAM
             self.ki = I_GAIN_CAM
@@ -569,14 +569,29 @@ if __name__ == '__main__':
         #     midpoint = cam_midpoint
         
         # midpoint = cam_midpoint
+
+        #####################[CAM DRIVE TEST]#############################
+        # midpoint = cam_drive.find_midpoint_visualize()
+        # if midpoint is not None:
+        #     angle = xycar.pid(midpoint, "LINE TRACKING")
+        #     speed = 5
+        #     xycar.drive(angle, speed)
+        #########################################################
+
+        ######################[TUNNEL DRIVE TEST]###################################
         midpoint = lidar_drive.find_midpoint()
         if midpoint is not None:
-            # angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
             angle = xycar.pid(midpoint, "TUNNEL DRIVING")
             speed = 0 # Adjust speed as necessary
             xycar.drive(angle, speed)
-        
-        # RATE.sleep()
+        ############################################################################
+
+        ######################[AVOID OBSTACLE TEST]###################################
+        # obs_xycar_theta = lidar_drive.find_obstacle()
+        # angle = xycar.pid(obs_xycar_theta, "AVOID OBSTACLE")
+        # speed = 0 # Adjust speed as necessary
+        # xycar.drive(angle, speed)
+        ###########################################################################
 
         if ar_ID == 2:
             gostop, direction = traffic_light.traffic_crossroad()
