@@ -24,9 +24,14 @@ WIDTH, HEIGHT = 640, 480
 ROI_ROW = 280
 ROI_OFFSET = 50
 
-P_GAIN = 0.6
+# P_GAIN = 0.6
+# I_GAIN = 0.006
+# D_GAIN = 0.001
+
+P_GAIN = 1000
 I_GAIN = 0.006
 D_GAIN = 0.001
+
 SPEED = 5
 THETA = 0
 CENTER_X = 0
@@ -315,11 +320,16 @@ class CAM_DRIVING:
 class LIDAR_DRIVING:
     def __init__(self):
         rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
+        
+        self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
+        self.lidar_xy_points_pub_right = rospy.Publisher('/lidar_xy_points_right', Marker, queue_size=10)
+        self.lidar_xy_points_pub_left = rospy.Publisher('/lidar_xy_points_left', Marker, queue_size=10)
+        self.clustered_points_pub_right = rospy.Publisher('/clustered_points_right', Marker, queue_size=10)
+        self.clustered_points_pub_left = rospy.Publisher('/clustered_points_left', Marker, queue_size=10)
+
         self.lidar_points = None
         self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
         self.LIDAR_ROI = [(0, 181), (180, 361)]
-        self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
-        self.lidar_xy_points_pub = rospy.Publisher('/lidar_xy_points', Marker, queue_size=10)
         self.lidar_ready = False
         
     def lidar_callback(self, data):
@@ -335,24 +345,22 @@ class LIDAR_DRIVING:
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
         
-        self.publish_lidar_points(points)
-
         return points
 
     def cluster(self, points):
         if len(points) < 1:
-            return None
+            return None, np.array([[0, 0]])
 
-        db = DBSCAN(eps=0.2, min_samples=3).fit(points)
+        db = DBSCAN(eps=0.5, min_samples=1).fit(points)
         labels = db.labels_
 
         clusters = [points[labels == label] for label in set(labels) if label != -1]
         if not clusters:
-            return None
+            return None, np.array([[0, 0]])
 
         largest_cluster = max(clusters, key=len)
         center = np.mean(largest_cluster, axis=0)
-        return center
+        return center, largest_cluster
 
     # FOR OBSTACLE AVOIDANCE(MISSION 3)
     def find_obstacle(self):
@@ -372,24 +380,33 @@ class LIDAR_DRIVING:
             RATE.sleep()
 
         points = self.preprocess_lidar_data()
-        left_points = points[points[:, 1] > 0]
-        right_points = points[points[:, 1] < 0]
+        left_points = points[points[:, 0] > 0]
+        right_points = points[points[:, 0] < 0]
 
-        right_wall_center = self.cluster(right_points)
-        if right_wall_center is None:
-            right_wall_center = [0,0]
+        self.publish_lidar_points(right_points, "right")
+        self.publish_lidar_points(left_points, "left")
 
-        left_wall_center = self.cluster(left_points)
-        if left_wall_center is None:
-            left_wall_center = [0,0]
+        if len(right_points) == 0:
+                right_wall_center = np.array([0, 0])
+                right_cluster = np.array([[0, 0]])
+        else:
+            right_wall_center, right_cluster = self.cluster(right_points)
+        self.publish_clustered_points(right_cluster, "right")
+
+        if len(left_points) == 0:
+            left_wall_center = np.array([0, 0])
+            left_cluster = np.array([[0, 0]])
+        else:
+            left_wall_center, left_cluster = self.cluster(left_points)
+        self.publish_clustered_points(left_cluster, "left")
             
         total_center_x = (right_wall_center[0] + left_wall_center[0])/2
 
         self.publish_wall_centers(right_wall_center, left_wall_center, (right_wall_center+left_wall_center)/2)
 
-        return total_center_x
+        return -total_center_x
 
-    def publish_lidar_points(self, points):
+    def publish_lidar_points(self, points, value):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
@@ -409,8 +426,10 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
-
-        self.lidar_xy_points_pub.publish(marker)
+        if value == "right":
+            self.lidar_xy_points_pub_right.publish(marker)
+        elif value == "left":
+            self.lidar_xy_points_pub_left.publish(marker)
 
     def publish_wall_centers(self, right_wall_center, left_wall_center, total_wall_center):
         marker = Marker()
@@ -449,7 +468,30 @@ class LIDAR_DRIVING:
 
         self.wall_centers_pub.publish(marker)
 
+    def publish_clustered_points(self, clustered_points, value):
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
 
+        for point in clustered_points:
+            p = Point()
+            p.x = point[0]
+            p.y = point[1]
+            p.z = 0
+            marker.points.append(p)
+
+        marker.scale.x = 0.1
+        marker.scale.y = 0.1
+        marker.scale.z = 0.1
+        marker.color.a = 1.0
+        marker.color.r = 0.0
+        marker.color.g = 0.0
+        marker.color.b = 1.0
+        if value == "right":
+            self.clustered_points_pub_right.publish(marker)
+        elif value == "left":
+            self.clustered_points_pub_left.publish(marker)
 
 # MAIN LOOP
 if __name__ == '__main__':
@@ -461,18 +503,18 @@ if __name__ == '__main__':
     
     while not rospy.is_shutdown():
         ar_ID, ar_distance = ar_tag.AR_detect()
-        cam_midpoint = cam_drive.find_midpoint_visualize()
+        # cam_midpoint = cam_drive.find_midpoint_visualize()
         
         # if cam_midpoint is None:
         #     midpoint = lidar_drive.find_midpoint()
         # else:
         #     midpoint = cam_midpoint
         
-        midpoint = cam_midpoint
-        # midpoint = lidar_drive.find_midpoint()
-
+        # midpoint = cam_midpoint
+        midpoint = lidar_drive.find_midpoint()
         if midpoint is not None:
-            angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
+            # angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "LINE_TRACKING")
+            angle = xycar.pid(midpoint, P_GAIN, I_GAIN, D_GAIN, "TUNNEL DRIVING")
             speed = 0 # Adjust speed as necessary
             xycar.drive(angle, speed)
         
