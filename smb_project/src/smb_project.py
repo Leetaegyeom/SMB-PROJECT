@@ -119,7 +119,13 @@ class IMG_PROCESSING:
 
         # Histogram Equalize
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        hist_equalized = cv2.equalizeHist(gray)
+        
+        # CLAHE 적용
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        hist_equalized = clahe.apply(gray)
+        
+        # HE 적용
+        # hist_equalized = cv2.equalizeHist(gray)
         
         # GaussianBlur
         blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
