@@ -6,7 +6,6 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /Pose1
       Splitter Ratio: 0.5
     Tree Height: 565
   - Class: rviz/Selection
@@ -60,60 +59,53 @@ Visualization Manager:
       Queue Size: 100
       Value: false
     - Class: rviz/Marker
-      Enabled: false
+      Enabled: true
       Marker Topic: /clustered_points_left
       Name: CLUSTER_LEFT
       Namespaces:
+        "": true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /clustered_points_right
+      Name: CLUSTER_RIGHT
+      Namespaces:
+        "": true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: false
+      Marker Topic: /lidar_xy_points_left
+      Name: LIDAR_XY_LEFT
+      Namespaces:
         {}
       Queue Size: 100
       Value: false
     - Class: rviz/Marker
       Enabled: false
-      Marker Topic: /clustered_points_right
-      Name: CLUSTER_RIGHT
+      Marker Topic: /lidar_xy_points_right
+      Name: LIDAR_XY_RIGHT
       Namespaces:
         {}
       Queue Size: 100
       Value: false
     - Class: rviz/Marker
-      Enabled: true
-      Marker Topic: /lidar_xy_points_left
-      Name: LIDAR_XY_LEFT
-      Namespaces:
-        "": true
-      Queue Size: 100
-      Value: true
-    - Class: rviz/Marker
-      Enabled: true
-      Marker Topic: /lidar_xy_points_right
-      Name: LIDAR_XY_RIGHT
-      Namespaces:
-        "": true
-      Queue Size: 100
-      Value: true
-    - Class: rviz/Marker
-      Enabled: true
+      Enabled: false
       Marker Topic: /min_max_point
       Name: MIN_MAX_POINT
       Namespaces:
-        "": true
+        {}
       Queue Size: 100
-      Value: true
-    - Alpha: 1
-      Axes Length: 1
-      Axes Radius: 0.100000001
-      Class: rviz/Pose
-      Color: 255; 25; 0
-      Enabled: true
-      Head Length: 0.300000012
-      Head Radius: 0.100000001
-      Name: Pose
-      Shaft Length: 1
-      Shaft Radius: 0.0500000007
-      Shape: Arrow
-      Topic: ""
-      Unreliable: false
-      Value: true
+      Value: false
+    - Class: rviz/Marker
+      Enabled: false
+      Marker Topic: /min_max_vector
+      Name: MIN_MAX_VECTOR
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

@@ -21,16 +21,16 @@ rospy.init_node('xycar')
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 280
-ROI_OFFSET = 50
+ROI_ROW = 240
+ROI_OFFSET = 90
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
 D_GAIN_CAM = 0.001
 
-P_GAIN_TUNNEL = 500
-I_GAIN_TUNNEL = 0.0
-D_GAIN_TUNNEL = 0.0
+P_GAIN_TUNNEL = 5
+I_GAIN_TUNNEL = 0
+D_GAIN_TUNNEL = 1
 
 P_GAIN_OBS = 1
 I_GAIN_OBS = 0.0
@@ -38,7 +38,7 @@ D_GAIN_OBS = 0.0
 
 SPEED = 5
 THETA = 0
-THETA_90 = 90
+DELTA_50 = 50
 
 # SEND CONTROL MESSAGE TO XYCAR
 class CONTROL:
@@ -54,7 +54,7 @@ class CONTROL:
         self.kd = 0
         
     def pid(self, input_data, type="LINE TRACKING"):
-
+        # print(input_data)
         if type == "LINE TRACKING":
             error = WIDTH // 2 - input_data
             self.kp = P_GAIN_CAM
@@ -68,7 +68,7 @@ class CONTROL:
             self.kd = D_GAIN_OBS
 
         elif type == "TUNNEL DRIVING":
-            error = THETA_90 - input_data
+            error = DELTA_50 - input_data
             self.kp = P_GAIN_TUNNEL
             self.ki = I_GAIN_TUNNEL
             self.kd = D_GAIN_TUNNEL
@@ -86,7 +86,6 @@ class CONTROL:
             output = self.ANGLE_LIMIT
         elif output < -self.ANGLE_LIMIT:
             output = -self.ANGLE_LIMIT
-
         return -output
 
     def drive(self, Angle, Speed):
@@ -122,11 +121,11 @@ class IMG_PROCESSING:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
         # CLAHE 적용
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        hist_equalized = clahe.apply(gray)
+        # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        # hist_equalized = clahe.apply(gray)
         
         # HE 적용
-        # hist_equalized = cv2.equalizeHist(gray)
+        hist_equalized = cv2.equalizeHist(gray)
         
         # GaussianBlur
         blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
@@ -304,7 +303,7 @@ class CAM_DRIVING:
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
 
         else:
-            self.x_midpoint = 50
+            self.x_midpoint = 0
 
         self.prev_x_left = self.x_left
         self.prev_x_right = self.x_right
@@ -355,7 +354,7 @@ class CAM_DRIVING:
             cv2.rectangle(line_img, (self.prev_x_left-5, self.prev_y_left-5), (self.prev_x_left+5, self.prev_y_left+5), (0,0,255), 4)
 
         else:
-            self.x_midpoint = 50
+            self.x_midpoint = 0
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
             
@@ -380,7 +379,7 @@ class CAM_DRIVING:
         horiz_line_threshold = 10
         crosswalk_flag = None
 
-        _, _, _, _, horiz_line_num = self.img_proc.find_line_visualize()
+        _, _, _, _, horiz_line_num = self.img_proc.find_line()
 
         if horiz_line_num > horiz_line_threshold:
             crosswalk_flag = 1
@@ -405,7 +404,7 @@ class LIDAR_DRIVING:
         self.min_max_point_pub = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
         self.lidar_points = None
-        self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
+        self.THETA2INPUT = 50.0 / 90.0 # theta : -90 ~ 90, input : -50 ~ 50
         self.LIDAR_ROI = [(0, 181), (180, 361)]
         self.lidar_ready = False
         
@@ -418,14 +417,14 @@ class LIDAR_DRIVING:
             return None
 
         ranges = np.array(self.lidar_points)
-        valid_idx = (ranges > 0.1) & (ranges < 10.0)
+        valid_idx = (ranges > 0.1) & (ranges < 1.0)
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
         return points
 
     def cluster(self, points):
         if len(points) < 1:
-            return None, np.array([[0, 0]])
+            return None, np.array([[0, 0]]), 0, 0
 
         db = DBSCAN(eps=0.5, min_samples=1).fit(points)
         labels = db.labels_
@@ -457,45 +456,94 @@ class LIDAR_DRIVING:
         return xycacr2obstacle_theta
      
     # FOR TUNNEL DRIVING(MISSION 4)
+    # def find_midpoint(self):
+    #     while not self.lidar_ready:
+    #         RATE.sleep()
+
+    #     points = self.preprocess_lidar_data()
+    #     left_points = points[points[:, 0] > 0]
+    #     right_points = points[points[:, 0] < 0]
+    #     self.publish_lidar_points(right_points, "right")
+    #     self.publish_lidar_points(left_points, "left")
+
+    #     if len(right_points) == 0:
+    #             right_wall_center = np.array([0, 0])
+    #             right_cluster = np.array([[0, 0]])
+    #     else:
+    #         right_wall_center, right_cluster, right_ymax_idx, right_ymin_idx = self.cluster(right_points)
+    #     self.publish_clustered_points(right_cluster, "right")
+    #     right_max_point = right_points[right_ymax_idx]
+    #     right_min_point = right_points[right_ymin_idx]
+
+    #     if len(left_points) == 0:
+    #         left_wall_center = np.array([0, 0])
+    #         left_cluster = np.array([[0, 0]])
+    #     else:
+    #         left_wall_center, left_cluster, left_ymax_idx, left_ymin_idx = self.cluster(left_points)
+    #     self.publish_clustered_points(left_cluster, "left")
+    #     left_ymax_idx = 0
+    #     left_max_point = left_points[left_ymax_idx]
+    #     left_min_point = left_points[left_ymin_idx]
+
+    #     self.publish_wall_centers(right_wall_center, left_wall_center)
+
+    #     # mid_max_point = (right_max_point + left_max_point) / 2
+    #     # mid_min_point = (right_min_point + left_min_point) / 2
+    #     mid_max_point = right_max_point
+    #     mid_min_point = left_min_point
+    #     self.publish_min_max_point(right_min_point, right_max_point, left_min_point, left_max_point, mid_min_point, mid_max_point)
+
+    #     min_max_vec = mid_max_point - mid_min_point
+    #     self.publish_ref_vector(min_max_vec)
+
+    #     ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0]))
+    #     # print(ref_angle)
+    #     return ref_angle
+
     def find_midpoint(self):
         while not self.lidar_ready:
             RATE.sleep()
 
         points = self.preprocess_lidar_data()
-        left_points = points[points[:, 0] > 0]
-        right_points = points[points[:, 0] < 0]
-        self.publish_lidar_points(right_points, "right")
-        self.publish_lidar_points(left_points, "left")
 
-        if len(right_points) == 0:
-                right_wall_center = np.array([0, 0])
-                right_cluster = np.array([[0, 0]])
-        else:
-            right_wall_center, right_cluster, right_ymax_idx, right_ymin_idx = self.cluster(right_points)
-        self.publish_clustered_points(right_cluster, "right")
-        right_max_point = right_points[right_ymax_idx]
-        right_min_point = right_points[right_ymin_idx]
+        #self.publish_lidar_points(right_points, "right")
+        #self.publish_lidar_points(left_points, "left")
 
-        if len(left_points) == 0:
-            left_wall_center = np.array([0, 0])
-            left_cluster = np.array([[0, 0]])
-        else:
-            left_wall_center, left_cluster, left_ymax_idx, left_ymin_idx = self.cluster(left_points)
-        self.publish_clustered_points(left_cluster, "left")
-        left_max_point = left_points[left_ymax_idx]
-        left_min_point = left_points[left_ymin_idx]
+        #if len(right_points) == 0:
+        #        right_wall_center = np.array([0, 0])
+        #        right_cluster = np.array([[0, 0]])
+        #else:
+        #    right_wall_center, right_cluster, right_ymax_idx, right_ymin_idx = self.cluster(right_points)
+        wall_center, clusters, ymax_idx, ymin_idx = self.cluster(points)
+        #self.publish_clustered_points(right_cluster, "right")
+        #right_max_point = right_points[right_ymax_idx]
+        #right_min_point = right_points[right_ymin_idx]
 
-        self.publish_wall_centers(right_wall_center, left_wall_center)
+        #if len(left_points) == 0:
+        #    left_wall_center = np.array([0, 0])
+        #    left_cluster = np.array([[0, 0]])
+        #else:
+        #    left_wall_center, left_cluster, left_ymax_idx, left_ymin_idx = self.cluster(left_points)
+        #self.publish_clustered_points(left_cluster, "left")
+        #left_ymax_idx = 0
+        #left_max_point = left_points[left_ymax_idx]
+        #left_min_point = left_points[left_ymin_idx]
 
-        mid_max_point = (right_max_point + left_max_point) / 2
-        mid_min_point = (right_min_point + left_min_point) / 2
-        self.publish_min_max_point(right_min_point, right_max_point, left_min_point, left_max_point, mid_min_point, mid_max_point)
+        #self.publish_wall_centers(right_wall_center, left_wall_center)
+
+        # mid_max_point = (right_max_point + left_max_point) / 2
+        # mid_min_point = (right_min_point + left_min_point) / 2
+        mid_max_point = points[ymax_idx]
+        mid_min_point = points[ymin_idx]
+        
+        #self.publish_min_max_point(right_min_point, right_max_point, left_min_point, left_max_point, mid_min_point, mid_max_point)
 
         min_max_vec = mid_max_point - mid_min_point
         self.publish_ref_vector(min_max_vec)
 
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0]))
-        print(ref_angle)
+        ref_angle = ref_angle * self.THETA2INPUT
+        # print(ref_angle)
         return ref_angle
 
     def publish_lidar_points(self, points, value):
@@ -699,19 +747,19 @@ if __name__ == '__main__':
         ##################################################################################
 
         #####################[CAM DRIVE TEST]#############################
-        midpoint = cam_drive.find_midpoint_visualize()
-        if midpoint is not None:
-            angle = xycar.pid(midpoint, "LINE TRACKING")
-            speed = 5
-            xycar.drive(angle, speed)
+        # midpoint = cam_drive.find_midpoint_visualize()
+        # if midpoint is not None:
+        #     angle = xycar.pid(midpoint, "LINE TRACKING")
+        #     speed = 5
+        #     xycar.drive(angle, speed)
         #########################################################
 
         ######################[TUNNEL DRIVE TEST]###################################
-        # midpoint = lidar_drive.find_midpoint()
-        # if midpoint is not None:
-        #     angle = xycar.pid(midpoint, "TUNNEL DRIVING")
-        #     speed = 0
-        #     xycar.drive(angle,speed)
+        midpoint = lidar_drive.find_midpoint()
+        if midpoint is not None:
+            angle = xycar.pid(midpoint, "TUNNEL DRIVING")
+            speed = 5
+            xycar.drive(angle, speed)
         ############################################################################
 
         ######################[AVOID OBSTACLE TEST]###################################
