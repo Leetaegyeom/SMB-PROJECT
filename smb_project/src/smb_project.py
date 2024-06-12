@@ -17,20 +17,19 @@ from geometry_msgs.msg import Point, Vector3
 
 rospy.init_node('xycar')
 
-
-CONTROL_TIME = 0.1
+CONTROL_TIME = 0.01
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 240
+ROI_ROW = 360
 ROI_OFFSET = 90
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
 D_GAIN_CAM = 0.001
 
-P_GAIN_TUNNEL = 5
+P_GAIN_TUNNEL = 7
 I_GAIN_TUNNEL = 0
-D_GAIN_TUNNEL = 1
+D_GAIN_TUNNEL = 7
 
 P_GAIN_OBS = 1
 I_GAIN_OBS = 0.0
@@ -104,7 +103,7 @@ class IMG_PROCESSING:
         self.bridge = CvBridge()
         self.img_ready = False
         self.CAM_FPS = 30
-        self.ROI_HEIGHT = HEIGHT - ROI_ROW - ROI_OFFSET
+        self.ROI_HEIGHT = HEIGHT - ROI_ROW 
         
     def img_callback(self, data):
         self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -131,8 +130,10 @@ class IMG_PROCESSING:
         blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
         
         # Canny Edge Detection
-        edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
-        roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
+        edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
+        roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
+
+        cv2.imshow('canny', edge_img)
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
         if all_lines is None:
@@ -146,13 +147,13 @@ class IMG_PROCESSING:
             x1, y1, x2, y2 = line[0]
             slope = (y2 - y1) / (x2 - x1 + 1e-6)
 
-            if slope < 0 and x2 < WIDTH // 2:
+            if slope < -0.2 and x2 < WIDTH / 2:
                 left_x.append(x1)
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
                 
-            elif slope > 0 and x1 > WIDTH // 2:
+            elif slope > 0.2 and x1 > WIDTH / 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
@@ -395,11 +396,9 @@ class LIDAR_DRIVING:
     def __init__(self):
         rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
         
-        self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
-        self.lidar_xy_points_pub_right = rospy.Publisher('/lidar_xy_points_right', Marker, queue_size=10)
-        self.lidar_xy_points_pub_left = rospy.Publisher('/lidar_xy_points_left', Marker, queue_size=10)
-        self.clustered_points_pub_right = rospy.Publisher('/clustered_points_right', Marker, queue_size=10)
-        self.clustered_points_pub_left = rospy.Publisher('/clustered_points_left', Marker, queue_size=10)
+        # self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
+        self.lidar_xy_points_pub = rospy.Publisher('/lidar_xy_points', Marker, queue_size=10)
+        self.clustered_points_pub = rospy.Publisher('/clustered_points', Marker, queue_size=10)
         self.vector_pub = rospy.Publisher('/min_max_vector', Marker, queue_size=10)
         self.min_max_point_pub = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
@@ -417,21 +416,21 @@ class LIDAR_DRIVING:
             return None
 
         ranges = np.array(self.lidar_points)
-        valid_idx = (ranges > 0.1) & (ranges < 1.0)
+        valid_idx = (ranges > 0.1) & (ranges < 0.70)
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
         return points
 
     def cluster(self, points):
         if len(points) < 1:
-            return None, np.array([[0, 0]]), 0, 0
+            return None, np.array([[0, 0]]), None, None
 
         db = DBSCAN(eps=0.5, min_samples=1).fit(points)
         labels = db.labels_
 
         clusters = [points[labels == label] for label in set(labels) if label != -1]
         if not clusters:
-            return None, np.array([[0, 0]]), 0, 0
+            return None, np.array([[0, 0]]), None, None
 
         largest_cluster = max(clusters, key=len)
         center = np.mean(largest_cluster, axis=0)
@@ -505,48 +504,23 @@ class LIDAR_DRIVING:
             RATE.sleep()
 
         points = self.preprocess_lidar_data()
-
-        #self.publish_lidar_points(right_points, "right")
-        #self.publish_lidar_points(left_points, "left")
-
-        #if len(right_points) == 0:
-        #        right_wall_center = np.array([0, 0])
-        #        right_cluster = np.array([[0, 0]])
-        #else:
-        #    right_wall_center, right_cluster, right_ymax_idx, right_ymin_idx = self.cluster(right_points)
-        wall_center, clusters, ymax_idx, ymin_idx = self.cluster(points)
-        #self.publish_clustered_points(right_cluster, "right")
-        #right_max_point = right_points[right_ymax_idx]
-        #right_min_point = right_points[right_ymin_idx]
-
-        #if len(left_points) == 0:
-        #    left_wall_center = np.array([0, 0])
-        #    left_cluster = np.array([[0, 0]])
-        #else:
-        #    left_wall_center, left_cluster, left_ymax_idx, left_ymin_idx = self.cluster(left_points)
-        #self.publish_clustered_points(left_cluster, "left")
-        #left_ymax_idx = 0
-        #left_max_point = left_points[left_ymax_idx]
-        #left_min_point = left_points[left_ymin_idx]
-
-        #self.publish_wall_centers(right_wall_center, left_wall_center)
-
-        # mid_max_point = (right_max_point + left_max_point) / 2
-        # mid_min_point = (right_min_point + left_min_point) / 2
-        mid_max_point = points[ymax_idx]
-        mid_min_point = points[ymin_idx]
+        self.publish_lidar_points(points)
+        _, clusters, ymax_idx, ymin_idx = self.cluster(points)
+        self.publish_clustered_points(clusters)
+        max_point = points[ymax_idx]
+        min_point = points[ymin_idx]
+        print(ymax_idx)
         
-        #self.publish_min_max_point(right_min_point, right_max_point, left_min_point, left_max_point, mid_min_point, mid_max_point)
+        self.publish_min_max_point(min_point, max_point)
 
-        min_max_vec = mid_max_point - mid_min_point
+        min_max_vec = max_point - min_point
         self.publish_ref_vector(min_max_vec)
 
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0]))
         ref_angle = ref_angle * self.THETA2INPUT
-        # print(ref_angle)
         return ref_angle
 
-    def publish_lidar_points(self, points, value):
+    def publish_lidar_points(self, points):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
@@ -566,42 +540,39 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
-        if value == "right":
-            self.lidar_xy_points_pub_right.publish(marker)
-        elif value == "left":
-            self.lidar_xy_points_pub_left.publish(marker)
+        self.lidar_xy_points_pub.publish(marker)
 
-    def publish_wall_centers(self, right_wall_center, left_wall_center):
-        marker = Marker()
-        marker.header.frame_id = "base_link"
-        marker.type = Marker.POINTS
-        marker.action = Marker.ADD
+    # def publish_wall_centers(self, right_wall_center, left_wall_center):
+    #     marker = Marker()
+    #     marker.header.frame_id = "base_link"
+    #     marker.type = Marker.POINTS
+    #     marker.action = Marker.ADD
 
-        # RIGHT
-        right_point = Point()
-        right_point.x = right_wall_center[0]
-        right_point.y = right_wall_center[1]
-        right_point.z = 0.1
-        marker.points.append(right_point)
+    #     # RIGHT
+    #     right_point = Point()
+    #     right_point.x = right_wall_center[0]
+    #     right_point.y = right_wall_center[1]
+    #     right_point.z = 0.1
+    #     marker.points.append(right_point)
 
-        # LEFT
-        left_point = Point()
-        left_point.x = left_wall_center[0]
-        left_point.y = left_wall_center[1]
-        left_point.z = 0.1
-        marker.points.append(left_point)
+    #     # LEFT
+    #     left_point = Point()
+    #     left_point.x = left_wall_center[0]
+    #     left_point.y = left_wall_center[1]
+    #     left_point.z = 0.1
+    #     marker.points.append(left_point)
 
-        marker.scale.x = 0.2
-        marker.scale.y = 0.2
-        marker.scale.z = 0.2
-        marker.color.a = 1.0
-        marker.color.r = 1.0
-        marker.color.g = 0.0
-        marker.color.b = 0.0
+    #     marker.scale.x = 0.2
+    #     marker.scale.y = 0.2
+    #     marker.scale.z = 0.2
+    #     marker.color.a = 1.0
+    #     marker.color.r = 1.0
+    #     marker.color.g = 0.0
+    #     marker.color.b = 0.0
 
-        self.wall_centers_pub.publish(marker)
+    #     self.wall_centers_pub.publish(marker)
 
-    def publish_clustered_points(self, clustered_points, value):
+    def publish_clustered_points(self, clustered_points):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
@@ -621,10 +592,7 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 0.0
         marker.color.b = 1.0
-        if value == "right":
-            self.clustered_points_pub_right.publish(marker)
-        elif value == "left":
-            self.clustered_points_pub_left.publish(marker)
+        self.clustered_points_pub.publish(marker)
 
     def publish_ref_vector(self, vector):
         marker = Marker()
@@ -644,7 +612,7 @@ class LIDAR_DRIVING:
         # End point of the vector
         end_point = Point()
         end_point.x = vector[0]
-        end_point.y = vector[1]
+        end_point.y = -vector[1]
         end_point.z = 0  # Adjust if needed
 
         marker.points.append(start_point)
@@ -660,53 +628,25 @@ class LIDAR_DRIVING:
         marker.color.b = 0.0
         self.vector_pub.publish(marker)
 
-    def publish_min_max_point(self, r_min_point, r_max_point, l_min_point, l_max_point, m_min_point, m_max_point):
+    def publish_min_max_point(self, min_point_, max_point_):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
         marker.action = Marker.ADD
+        # print(min_point)
+        # MIN
+        min_point = Point()
+        min_point.x = min_point_[0]
+        min_point.y = min_point_[1]
+        min_point.z = 0.2
+        marker.points.append(min_point)
 
-        # RIGHT MIN
-        right_point = Point()
-        right_point.x = r_min_point[0]
-        right_point.y = r_min_point[1]
-        right_point.z = 0.1
-        marker.points.append(right_point)
-
-        # RIGHT MAX
-        right_point = Point()
-        right_point.x = r_max_point[0]
-        right_point.y = r_max_point[1]
-        right_point.z = 0.1
-        marker.points.append(right_point)
-
-        # LEFT MIN
-        right_point = Point()
-        right_point.x = l_min_point[0]
-        right_point.y = l_min_point[1]
-        right_point.z = 0.1
-        marker.points.append(right_point)
-
-        # LEFT MAX
-        left_point = Point()
-        left_point.x = l_max_point[0]
-        left_point.y = l_max_point[1]
-        left_point.z = 0.1
-        marker.points.append(left_point)
-
-        # MID MIN
-        left_point = Point()
-        left_point.x = m_min_point[0]
-        left_point.y = m_min_point[1]
-        left_point.z = 0.1
-        marker.points.append(left_point)
-
-        # MID MAX
-        left_point = Point()
-        left_point.x = m_max_point[0]
-        left_point.y = m_max_point[1]
-        left_point.z = 0.1
-        marker.points.append(left_point)
+        # MAX
+        max_point = Point()
+        max_point.x = max_point_[0]
+        max_point.y = max_point_[1]
+        max_point.z = 0.1
+        marker.points.append(max_point)
 
         marker.scale.x = 0.1
         marker.scale.y = 0.1
@@ -730,8 +670,8 @@ if __name__ == '__main__':
     drive_mode = "CAM"      # Cam or Lidar mode
     
     while not rospy.is_shutdown():
-        ar_ID, ar_distance = ar_tag.AR_detect()
-        crosswalk_flag = cam_drive.detect_crosswalk()
+        # ar_ID, ar_distance = ar_tag.AR_detect()
+        # crosswalk_flag = cam_drive.detect_crosswalk()
         # cam_midpoint = cam_drive.find_midpoint_visualize()
         
         # if cam_midpoint is None:
@@ -757,7 +697,7 @@ if __name__ == '__main__':
         ######################[TUNNEL DRIVE TEST]###################################
         midpoint = lidar_drive.find_midpoint()
         if midpoint is not None:
-            angle = xycar.pid(midpoint, "TUNNEL DRIVING")
+            angle = xycar.pid(midpoint, "TUNNEL DRIVING") -20
             speed = 5
             xycar.drive(angle, speed)
         ############################################################################
@@ -790,3 +730,4 @@ if __name__ == '__main__':
         #         speed = 0
 
         # xycar.drive()
+        RATE.sleep()

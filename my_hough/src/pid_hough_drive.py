@@ -245,7 +245,7 @@ def start():
         cv2.rectangle(line_draw_img, (view_center-5,L_ROW-5), (view_center+5,L_ROW+5), (0,0,255), 4)
 
         display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_draw_img
-        #cv2.imshow("Lanes positions", display_img)
+        cv2.imshow("Lanes positions", display_img)
         cv2.waitKey(1)
 
         # ==========================================
