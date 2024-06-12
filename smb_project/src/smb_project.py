@@ -37,6 +37,7 @@ D_GAIN_OBS = 7.0
 
 SPEED = 5
 DELTA_50 = 50
+TUNNEL_OUT_THRESHOLD = 10
 
 # SEND CONTROL MESSAGE TO XYCAR
 class CONTROL:
@@ -183,7 +184,8 @@ class AR_TAG:
 
     def AR_detect(self):
         min_ID = None
-        min_distance = float('inf')
+        # min_distance = float('inf')
+        min_distance = 0.5
 
         if len(self.arData["ID"]) == 0:
             return None, min_distance
@@ -227,7 +229,7 @@ class TRAFFIC_LIGHT:
         gostop = None
 
         if self.single_color is None:
-            return None
+            return gostop
 
         if self.single_color == 'G':
             gostop = 'go'
@@ -251,15 +253,15 @@ class TRAFFIC_LIGHT:
         if self.left_color is None or self.right_color is None or self.time_count is None:
             return None, None
 
-        if 3 <= self.time_count:
-            gostop = 'go'
+        if self.time_count >= 3:
+            gostop = 1
         else:
-            gostop = 'stop'
+            gostop = 0
 
         if self.left_color == 'R':
-            direction = 'right'
+            direction = 30
         else:
-            direction = 'left'
+            direction = -30
 
         return gostop, direction
         
@@ -701,3 +703,94 @@ if __name__ == '__main__':
 
         # xycar.drive()
         RATE.sleep()
+
+# MAIN LOOP REAL Ver.
+if __name__ == '__main__':
+    xycar = CONTROL()
+    cam_drive = CAM_DRIVING()
+    lidar_drive = LIDAR_DRIVING()
+    ar_tag = AR_TAG()
+    traffic_light = TRAFFIC_LIGHT()
+
+    speed = 5
+    can_we_go = 1
+    is_done = False
+    drive_mode = "CAM"      # Camera or Lidar mode
+    
+    while not rospy.is_shutdown():
+        # AR Detect
+        ar_ID, ar_distance = ar_tag.AR_detect()
+        
+        # Detect Crosswalk
+        crosswalk_flag = cam_drive.detect_crosswalk()
+        
+        # Find Closest Cluster
+        closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
+        
+        if ar_ID and ar_ID == 6 and drive_mode == "CAM":
+            pass_stack = 0
+            drive_mode = "LIDAR"
+
+        # Find Midpoint to follow
+        if drive_mode == "CAM":
+            midpoint = cam_drive.find_midpoint_visualize()
+            
+            # Avoid Obstacle
+            if ar_ID is None and cluster_distance < 0.3:
+                midpoint += closest_cluster_center[0]
+                
+        # Tunnel Mission
+        else:
+            midpoint = lidar_drive.find_midpoint()
+            
+            if closest_cluster_center is None:
+                pass_stack += 1
+            
+            # Finish Tunnel
+            if pass_stack > TUNNEL_OUT_THRESHOLD:
+                drive_mode = "CAM"
+                
+        # Crosswalk
+        if crosswalk_flag:
+            can_we_go = 0
+        else:
+            can_we_go = 1
+        
+        # Crossroads & Stop Mission
+        if ar_ID:
+            if ar_ID == 2:
+                can_we_go, direction = traffic_light.traffic_crossroad()
+                
+                if can_we_go == 1:
+                    for _ in range(5):
+                        xycar.drvie(0, speed)
+                        RATE.sleep()
+                    for _ in range(10):
+                        xycar.drvie(direction, speed)
+                        RATE.sleep()
+                    
+                    continue    # Find Line Again
+            
+            elif ar_ID == 4:
+                while True:
+                    _, ar_distance = ar_tag.AR_detect()
+                    
+                    # Need to make Angle Calculate Module !!!
+                    #
+                    #
+                    # # # # # # # # # # # # # # # # # #
+                
+                    if ar_distance < 0.2:
+                        is_done = True
+                        break
+                    
+                    xycar.drive(angle, speed)
+                    RATE.sleep()
+        
+        if is_done:
+            break
+            
+        angle = xycar.pid(midpoint)
+        xycar.drive(angle, speed * can_we_go)
+        
+        # RATE.sleep()
