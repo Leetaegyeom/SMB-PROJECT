@@ -147,13 +147,13 @@ class IMG_PROCESSING:
             x1, y1, x2, y2 = line[0]
             slope = (y2 - y1) / (x2 - x1 + 1e-6)
 
-            if slope < 0.1 and x2 < WIDTH // 2:
+            if slope < 0 and x2 < WIDTH // 2:
                 left_x.append(x1)
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
                 
-            elif slope > 0.1 and x1 > WIDTH // 2:
+            elif slope > 0 and x1 > WIDTH // 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
@@ -287,51 +287,51 @@ class CAM_DRIVING:
     def find_midpoint(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
-        
+
         left_x, right_x, _, _, _ = self.img_proc.find_line()
-        
+
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_right = sum(right_x) / len(right_x)
             self.x_midpoint = (self.x_left + self.x_right) // 2
-            
+
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
-            
+
         elif right_x:
             self.x_right = sum(right_x) / len(right_x)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
-            
+
         else:
-            return None
+            self.x_midpoint = 50
 
         self.prev_x_left = self.x_left
         self.prev_x_right = self.x_right
         self.prev_x_midpoint = self.x_midpoint
-        
+
         return self.x_midpoint
-    
+
     def find_midpoint_visualize(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
-            
+
         img = self.img_proc.get_img()
         display_img = img
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
-        
+
         left_x, right_x, left_y, right_y, _ = self.img_proc.find_line()
-        
+
         for i in range(0, len(left_x), 2):
             x1, x2 = left_x[i], left_x[i+1]
             y1, y2 = left_y[i], left_y[i+1]
             cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
-        
+
         for i in range(0, len(right_x), 2):
             x1, x2 = right_x[i], right_x[i+1]
             y1, y2 = right_y[i], right_y[i+1]
             cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
-                    
+
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
             self.y_left = sum(left_y) / len(left_y)
@@ -341,13 +341,13 @@ class CAM_DRIVING:
             self.y_midpoint = (self.y_left + self.y_right) // 2
             cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
             cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
-            
+
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
             cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
-            
+
         elif right_x:
             self.x_right = sum(right_x) / len(right_x)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
@@ -517,6 +517,7 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
+        
         if value == "right":
             self.lidar_xy_points_pub_right.publish(marker)
         elif value == "left":
@@ -572,6 +573,7 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 0.0
         marker.color.b = 1.0
+        
         if value == "right":
             self.clustered_points_pub_right.publish(marker)
         elif value == "left":
@@ -651,10 +653,11 @@ if __name__ == '__main__':
     traffic_light = TRAFFIC_LIGHT()
 
     speed = 0
+    drive_mode = "CAM"      # Cam or Lidar mode
     
     while not rospy.is_shutdown():
-        # ar_ID, ar_distance = ar_tag.AR_detect()
-        # crosswalk_flag = cam_drive.detect_crosswalk()
+        ar_ID, ar_distance = ar_tag.AR_detect()
+        crosswalk_flag = cam_drive.detect_crosswalk()
         # cam_midpoint = cam_drive.find_midpoint_visualize()
         
         # if cam_midpoint is None:
@@ -663,21 +666,26 @@ if __name__ == '__main__':
         #     midpoint = cam_midpoint
         
         # midpoint = cam_midpoint
+        
+        ########## Lidar 클래스에서 젤 가까운 클러스터 위치, 거리 받아오는 알고리즘 ##########
+        #
+        #
+        ##################################################################################
 
         #####################[CAM DRIVE TEST]#############################
-        # midpoint = cam_drive.find_midpoint_visualize()
-        # if midpoint is not None:
-        #     angle = xycar.pid(midpoint, "LINE TRACKING")
-        #     speed = 5
-        #     xycar.drive(angle, speed)
+        midpoint = cam_drive.find_midpoint_visualize()
+        if midpoint is not None:
+            angle = xycar.pid(midpoint, "LINE TRACKING")
+            speed = 5
+            xycar.drive(angle, speed)
         #########################################################
 
         ######################[TUNNEL DRIVE TEST]###################################
-        midpoint = lidar_drive.find_midpoint()
-        if midpoint is not None:
-            angle = xycar.pid(midpoint, "TUNNEL DRIVING")
-            speed = 0
-            xycar.drive(angle,speed)
+        # midpoint = lidar_drive.find_midpoint()
+        # if midpoint is not None:
+        #     angle = xycar.pid(midpoint, "TUNNEL DRIVING")
+        #     speed = 0
+        #     xycar.drive(angle,speed)
         ############################################################################
 
         ######################[AVOID OBSTACLE TEST]###################################
