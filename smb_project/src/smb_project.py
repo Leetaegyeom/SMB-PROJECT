@@ -401,7 +401,7 @@ class LIDAR_DRIVING:
         self.lidar_xy_points_pub_left = rospy.Publisher('/lidar_xy_points_left', Marker, queue_size=10)
         self.clustered_points_pub_right = rospy.Publisher('/clustered_points_right', Marker, queue_size=10)
         self.clustered_points_pub_left = rospy.Publisher('/clustered_points_left', Marker, queue_size=10)
-        self.vector_pub = rospy.Publisher('/min_max_vector', Vector3, queue_size=10)
+        self.vector_pub = rospy.Publisher('/min_max_vector', Marker, queue_size=10)
         self.min_max_point_pub = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
         self.lidar_points = None
@@ -432,7 +432,7 @@ class LIDAR_DRIVING:
 
         clusters = [points[labels == label] for label in set(labels) if label != -1]
         if not clusters:
-            return None, np.array([[0, 0]])
+            return None, np.array([[0, 0]]), 0, 0
 
         largest_cluster = max(clusters, key=len)
         center = np.mean(largest_cluster, axis=0)
@@ -487,14 +487,15 @@ class LIDAR_DRIVING:
 
         self.publish_wall_centers(right_wall_center, left_wall_center)
 
-        mid_max_point = (right_max_point + right_min_point) / 2
-        mid_min_point = (left_max_point + left_min_point) / 2
+        mid_max_point = (right_max_point + left_max_point) / 2
+        mid_min_point = (right_min_point + left_min_point) / 2
         self.publish_min_max_point(right_min_point, right_max_point, left_min_point, left_max_point, mid_min_point, mid_max_point)
 
         min_max_vec = mid_max_point - mid_min_point
         self.publish_ref_vector(min_max_vec)
 
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0]))
+        print(ref_angle)
         return ref_angle
 
     def publish_lidar_points(self, points, value):
@@ -517,7 +518,6 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
-        
         if value == "right":
             self.lidar_xy_points_pub_right.publish(marker)
         elif value == "left":
@@ -573,18 +573,44 @@ class LIDAR_DRIVING:
         marker.color.r = 0.0
         marker.color.g = 0.0
         marker.color.b = 1.0
-        
         if value == "right":
             self.clustered_points_pub_right.publish(marker)
         elif value == "left":
             self.clustered_points_pub_left.publish(marker)
 
     def publish_ref_vector(self, vector):
-        vector_msg = Vector3()
-        vector_msg.x = vector[0]
-        vector_msg.y = vector[1]
-        vector_msg.z = 0 
-        self.vector_pub.publish(vector_msg)
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = "vector"
+        marker.id = 0
+        marker.type = Marker.ARROW
+        marker.action = Marker.ADD
+
+        # Start point of the vector
+        start_point = Point()
+        start_point.x = 0
+        start_point.y = 0
+        start_point.z = 0
+
+        # End point of the vector
+        end_point = Point()
+        end_point.x = vector[0]
+        end_point.y = vector[1]
+        end_point.z = 0  # Adjust if needed
+
+        marker.points.append(start_point)
+        marker.points.append(end_point)
+
+        marker.scale.x = 0.1
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+
+        marker.color.a = 1.0
+        marker.color.r = 1.0 
+        marker.color.g = 0.0 
+        marker.color.b = 0.0
+        self.vector_pub.publish(marker)
 
     def publish_min_max_point(self, r_min_point, r_max_point, l_min_point, l_max_point, m_min_point, m_max_point):
         marker = Marker()
