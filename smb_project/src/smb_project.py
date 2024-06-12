@@ -401,6 +401,7 @@ class LIDAR_DRIVING:
         self.clustered_points_pub_right = rospy.Publisher('/clustered_points_right', Marker, queue_size=10)
         self.clustered_points_pub_left = rospy.Publisher('/clustered_points_left', Marker, queue_size=10)
         self.vector_publisher = rospy.Publisher('/min_max_vector', Vector3, queue_size=10)
+        self.min_max_poitn_publisher = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
         self.lidar_points = None
         self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
@@ -491,13 +492,6 @@ class LIDAR_DRIVING:
         ref_angle = np.degrees(np.arctan(min_max_vec))
 
         return ref_angle
-    
-    def publish_ref_vector(self, vector):
-        vector_msg = Vector3()
-        vector_msg.x = vector[0]
-        vector_msg.y = vector[1]
-        vector_msg.z = 0 
-        self.vector_publisher.publish(vector_msg)
 
     def publish_lidar_points(self, points, value):
         marker = Marker()
@@ -578,6 +572,71 @@ class LIDAR_DRIVING:
             self.clustered_points_pub_right.publish(marker)
         elif value == "left":
             self.clustered_points_pub_left.publish(marker)
+
+    def publish_ref_vector(self, vector):
+        vector_msg = Vector3()
+        vector_msg.x = vector[0]
+        vector_msg.y = vector[1]
+        vector_msg.z = 0 
+        self.vector_publisher.publish(vector_msg)
+
+    def publish_min_max_point(self, r_min_point, r_max_point, l_min_point, l_max_point, m_min_point, m_max_point):
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.type = Marker.POINTS
+        marker.action = Marker.ADD
+
+        # RIGHT MIN
+        right_point = Point()
+        right_point.x = r_min_point[0]
+        right_point.y = r_min_point[1]
+        right_point.z = 0.1
+        marker.points.append(right_point)
+
+        # RIGHT MAX
+        right_point = Point()
+        right_point.x = r_max_point[0]
+        right_point.y = r_max_point[1]
+        right_point.z = 0.1
+        marker.points.append(right_point)
+
+        # LEFT MIN
+        right_point = Point()
+        right_point.x = l_min_point[0]
+        right_point.y = l_min_point[1]
+        right_point.z = 0.1
+        marker.points.append(right_point)
+
+        # LEFT MAX
+        left_point = Point()
+        left_point.x = l_max_point[0]
+        left_point.y = l_max_point[1]
+        left_point.z = 0.1
+        marker.points.append(left_point)
+
+        # MID MIN
+        left_point = Point()
+        left_point.x = m_min_point[0]
+        left_point.y = m_min_point[1]
+        left_point.z = 0.1
+        marker.points.append(left_point)
+
+        # MID MAX
+        left_point = Point()
+        left_point.x = m_max_point[0]
+        left_point.y = m_max_point[1]
+        left_point.z = 0.1
+        marker.points.append(left_point)
+
+        marker.scale.x = 0.1
+        marker.scale.y = 0.1
+        marker.scale.z = 0.1
+        marker.color.a = 1.0
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+
+        self.min_max_poitn_publisher(marker)
 
 # MAIN LOOP
 if __name__ == '__main__':
