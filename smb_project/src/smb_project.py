@@ -229,20 +229,21 @@ class TRAFFIC_LIGHT:
         gostop = None
 
         if self.single_color is None:
-            return gostop
+            print("There is no Signal from Single Color!!!")
+            return 0
 
         if self.single_color == 'G':
-            gostop = 'go'
+            gostop = 1
         
         elif self.single_color == 'Y':
             if self.prev_single_color == 'G':
-                gostop = 'go'
+                gostop = 1
             
             elif self.prev_single_color == 'Y':
-                gostop = 'stop'
+                gostop = 0
             
         elif self.single_color == 'R':
-            gostop =  'stop'
+            gostop = 0
 
         return gostop
     
@@ -752,9 +753,7 @@ if __name__ == '__main__':
                 
         # Crosswalk
         if crosswalk_flag:
-            can_we_go = 0
-        else:
-            can_we_go = 1
+            can_we_go = traffic_light.traffic_single()
         
         # Crossroads & Stop Mission
         if ar_ID:
