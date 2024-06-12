@@ -54,6 +54,7 @@ class CONTROL:
         self.kd = 0
         
     def pid(self, input_data, type="LINE TRACKING"):
+
         if type == "LINE TRACKING":
             error = WIDTH // 2 - input_data
             self.kp = P_GAIN_CAM
@@ -400,8 +401,8 @@ class LIDAR_DRIVING:
         self.lidar_xy_points_pub_left = rospy.Publisher('/lidar_xy_points_left', Marker, queue_size=10)
         self.clustered_points_pub_right = rospy.Publisher('/clustered_points_right', Marker, queue_size=10)
         self.clustered_points_pub_left = rospy.Publisher('/clustered_points_left', Marker, queue_size=10)
-        self.vector_publisher = rospy.Publisher('/min_max_vector', Vector3, queue_size=10)
-        self.min_max_poitn_publisher = rospy.Publisher('/min_max_point', Marker, queue_size=10)
+        self.vector_pub = rospy.Publisher('/min_max_vector', Vector3, queue_size=10)
+        self.min_max_point_pub = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
         self.lidar_points = None
         self.THETA2INPUT = 50 / 90 # theta : -90 ~ 90, input : -50 ~ 50
@@ -418,7 +419,7 @@ class LIDAR_DRIVING:
 
         ranges = np.array(self.lidar_points)
         valid_idx = (ranges > 0.1) & (ranges < 10.0)
-        points = np.column_stack((ranges[valid_idx] * np.cos(np.lins-pace(0, 2 * np.pi, len(ranges))[valid_idx]),
+        points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
                                 ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
         return points
 
@@ -486,11 +487,14 @@ class LIDAR_DRIVING:
 
         self.publish_wall_centers(right_wall_center, left_wall_center)
 
-        mid_max_point = (right_max_point + right_min_point)/2
-        mid_min_point  = (left_max_point + left_min_point)/2
-        min_max_vec = mid_max_point - mid_min_point
-        ref_angle = np.degrees(np.arctan(min_max_vec))
+        mid_max_point = (right_max_point + right_min_point) / 2
+        mid_min_point = (left_max_point + left_min_point) / 2
+        self.publish_min_max_point(right_min_point, right_max_point, left_min_point, left_max_point, mid_min_point, mid_max_point)
 
+        min_max_vec = mid_max_point - mid_min_point
+        self.publish_ref_vector(min_max_vec)
+
+        ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0]))
         return ref_angle
 
     def publish_lidar_points(self, points, value):
@@ -578,7 +582,7 @@ class LIDAR_DRIVING:
         vector_msg.x = vector[0]
         vector_msg.y = vector[1]
         vector_msg.z = 0 
-        self.vector_publisher.publish(vector_msg)
+        self.vector_pub.publish(vector_msg)
 
     def publish_min_max_point(self, r_min_point, r_max_point, l_min_point, l_max_point, m_min_point, m_max_point):
         marker = Marker()
@@ -636,7 +640,7 @@ class LIDAR_DRIVING:
         marker.color.g = 0.0
         marker.color.b = 0.0
 
-        self.min_max_poitn_publisher(marker)
+        self.min_max_point_pub.publish(marker)
 
 # MAIN LOOP
 if __name__ == '__main__':
@@ -649,8 +653,8 @@ if __name__ == '__main__':
     speed = 0
     
     while not rospy.is_shutdown():
-        ar_ID, ar_distance = ar_tag.AR_detect()
-        crosswalk_flag = cam_drive.detect_crosswalk()
+        # ar_ID, ar_distance = ar_tag.AR_detect()
+        # crosswalk_flag = cam_drive.detect_crosswalk()
         # cam_midpoint = cam_drive.find_midpoint_visualize()
         
         # if cam_midpoint is None:
@@ -672,6 +676,8 @@ if __name__ == '__main__':
         midpoint = lidar_drive.find_midpoint()
         if midpoint is not None:
             angle = xycar.pid(midpoint, "TUNNEL DRIVING")
+            speed = 0
+            xycar.drive(angle,speed)
         ############################################################################
 
         ######################[AVOID OBSTACLE TEST]###################################
@@ -681,24 +687,24 @@ if __name__ == '__main__':
         # xycar.drive(angle, speed)
         ###########################################################################
 
-        if ar_ID is not None and ar_distance is not None:
-            if ar_ID == 4:
-                gostop, direction = traffic_light.traffic_crossroad()
-                if ar_distance < 0.1:
-                    speed = 0
-                elif direction is not None:
-                    if direction == 'left':
+        # if ar_ID is not None and ar_distance is not None:
+        #     if ar_ID == 4:
+        #         gostop, direction = traffic_light.traffic_crossroad()
+        #         if ar_distance < 0.1:
+        #             speed = 0
+        #         elif direction is not None:
+        #             if direction == 'left':
 
-                        pass
+        #                 pass
                     
-                    elif direction == 'right':
+        #             elif direction == 'right':
 
-                        pass
-            elif ar_ID == 2:
-                gostop = traffic_light.traffic_single()
+        #                 pass
+        #     elif ar_ID == 2:
+        #         gostop = traffic_light.traffic_single()
 
-        if crosswalk_flag == 1:
-            if gostop == 'stop':
-                speed = 0
+        # if crosswalk_flag == 1:
+        #     if gostop == 'stop':
+        #         speed = 0
 
-        xycar.drive()
+        # xycar.drive()
