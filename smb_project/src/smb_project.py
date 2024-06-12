@@ -423,14 +423,14 @@ class LIDAR_DRIVING:
 
     def cluster(self, points):
         if len(points) < 1:
-            return None, np.array([[0, 0]]), None, None
+            return None, np.array([[0, 0]]), None, None, None
 
         db = DBSCAN(eps=0.5, min_samples=1).fit(points)
         labels = db.labels_
 
         clusters = [points[labels == label] for label in set(labels) if label != -1]
         if not clusters:
-            return None, np.array([[0, 0]]), None, None
+            return None, np.array([[0, 0]]), None, None, None
 
         largest_cluster = max(clusters, key=len)
         center = np.mean(largest_cluster, axis=0)
@@ -440,7 +440,14 @@ class LIDAR_DRIVING:
         max_y_index = largest_cluster_indices[np.argmax(largest_cluster[:, 1])]
         min_y_index = largest_cluster_indices[np.argmin(largest_cluster[:, 1])]
 
-        return center, largest_cluster, max_y_index, min_y_index
+        cluster_centers = [np.mean(cluster, axis=0) for cluster in clusters]
+
+        origin = np.array([0, 0])
+        distances_to_origin = [np.linalg.norm(center - origin) for center in cluster_centers]
+        closest_cluster_index = np.argmin(distances_to_origin)
+        closest_cluster = clusters[closest_cluster_index] if closest_cluster_index < len(clusters) else None
+
+        return center, largest_cluster, max_y_index, min_y_index, closest_cluster
 
     # FOR OBSTACLE AVOIDANCE(MISSION 3)
     def find_obstacle(self):
@@ -505,7 +512,7 @@ class LIDAR_DRIVING:
 
         points = self.preprocess_lidar_data()
         self.publish_lidar_points(points)
-        _, clusters, ymax_idx, ymin_idx = self.cluster(points)
+        _, clusters, ymax_idx, ymin_idx, _ = self.cluster(points)
         self.publish_clustered_points(clusters)
         max_point = points[ymax_idx]
         min_point = points[ymin_idx]
@@ -519,6 +526,17 @@ class LIDAR_DRIVING:
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0]))
         ref_angle = ref_angle * self.THETA2INPUT
         return ref_angle
+
+    def find_closest_cluster(self):
+        while not self.lidar_ready:
+            RATE.sleep()
+        
+        points = self.preprocess_lidar_data()
+        _,_,_,_,closest_cluster = self.cluster(points)
+        closest_cluster_center = np.mean(closest_cluster, axis=0) if closest_cluster is not None else None
+        distance = np.linalg.norm(closest_cluster_center - np.array([0, 0]))
+        
+        return closest_cluster_center, distance
 
     def publish_lidar_points(self, points):
         marker = Marker()
@@ -682,8 +700,7 @@ if __name__ == '__main__':
         # midpoint = cam_midpoint
         
         ########## Lidar 클래스에서 젤 가까운 클러스터 위치, 거리 받아오는 알고리즘 ##########
-        #
-        #
+        closest_cluster_center, distance = lidar_drive.find_closest_cluster()
         ##################################################################################
 
         #####################[CAM DRIVE TEST]#############################
