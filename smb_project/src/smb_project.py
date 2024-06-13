@@ -473,7 +473,6 @@ class LIDAR_DRIVING:
         self.publish_clustered_points(clusters)
         max_point = points[ymax_idx]
         min_point = points[ymin_idx]
-        print(ymax_idx)
         
         self.publish_min_max_point(min_point, max_point)
 
@@ -808,13 +807,13 @@ if __name__ == '__main__':
         xycar.drive(angle, speed * can_we_go)
         
         if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
-            print(f"Present Mode: {drive_mode}")
-            print(f"Present AR ID: {ar_ID}")
-            print(f"Present Crosswalk Flag: {crosswalk_flag}")            
+            print("Present Mode:", drive_mode)
+            print("Present AR ID:", ar_ID)
+            print("Present Crosswalk Flag:", crosswalk_flag)            
             if cluster_distance == float("inf"):
                 print("There is no Cluster!!!")
             else:
-                print(f"Present Cluster Distance: {cluster_distance:.2f}")
+                print("Present Cluster Distance:", cluster_distance)
         
         prev_mode = drive_mode
         prev_ar_ID = ar_ID
