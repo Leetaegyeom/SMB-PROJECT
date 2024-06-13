@@ -20,8 +20,8 @@ rospy.init_node('xycar')
 CONTROL_TIME = 0.01
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 360
-ROI_OFFSET = 90
+ROI_ROW = 330
+ROI_OFFSET = 100
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
@@ -133,7 +133,7 @@ class IMG_PROCESSING:
         edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
         roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
 
-        cv2.imshow('canny', edge_img)
+        # cv2.imshow('canny', edge_img)
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
         if all_lines is None:
@@ -141,7 +141,6 @@ class IMG_PROCESSING:
 
         left_x, right_x = [], []
         left_y, right_y = [], []
-        horiz_line_num = 0
 
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
@@ -157,12 +156,25 @@ class IMG_PROCESSING:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
-                right_y.append(y2)                
-            
-            if -0.2 <= slope and slope <= 0.2:
-                horiz_line_num += 1
+                right_y.append(y2)
+                    
+        # Define ROI
+        roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
+
+        _, binary_img = cv2.threshold(roi_gray, 100, 255, cv2.THRESH_BINARY)
         
-        return left_x, right_x, left_y, right_y, horiz_line_num
+        # cv2.imshow('bin', binary_img)
+        cv2.waitKey(1)
+
+        # Calculate the white pixel ratio
+        white_pixel_count = cv2.countNonZero(binary_img)
+        total_pixels = binary_img.shape[0] * binary_img.shape[1]
+        white_pixel_ratio = float(white_pixel_count) / float(total_pixels)
+
+        # Determine if it's a crosswalk based on the white pixel ratio
+        is_crosswalk = white_pixel_ratio > 0.35
+
+        return left_x, right_x, left_y, right_y, is_crosswalk
 
     def get_img(self):
         return self.image.copy()
@@ -173,7 +185,7 @@ class AR_TAG:
     def __init__(self):
         self.arData = {"ID":[], "DZ":[]}
 
-        rospy.Subscriber('ar_pose_marker', AlvarMarkers, self.AR_callback)
+        rospy.Subscriber('/ar_pose_marker', AlvarMarkers, self.AR_callback)
 
     def AR_callback(self, data):
         self.arData = {"ID":[], "DZ":[]}
@@ -185,10 +197,10 @@ class AR_TAG:
     def AR_detect(self):
         min_ID = None
         # min_distance = float('inf')
-        min_distance = 0.5
+        min_distance = 1.0
 
         if len(self.arData["ID"]) == 0:
-            return None, min_distance
+            return min_ID, float("inf")
         
         for idx, distance in enumerate(self.arData["DZ"]):
             if distance < min_distance:
@@ -226,11 +238,11 @@ class TRAFFIC_LIGHT:
         self.time_count = data.data
 
     def traffic_single(self):
-        gostop = None
+        gostop = 0
 
         if self.single_color is None:
             print("There is no Signal from Single Color!!!")
-            return 0
+            return gostop
 
         if self.single_color == 'G':
             gostop = 1
@@ -248,11 +260,12 @@ class TRAFFIC_LIGHT:
         return gostop
     
     def traffic_crossroad(self):
-        direction = None
-        gostop = None
+        direction = 0
+        gostop = 0
 
         if self.left_color is None or self.right_color is None or self.time_count is None:
-            return None, None
+            print("There is no Traffic Light!!!")
+            return gostop, direction
 
         if self.time_count >= 3:
             gostop = 1
@@ -290,7 +303,7 @@ class CAM_DRIVING:
         while not self.img_proc.is_image_ready():
             RATE.sleep()
 
-        left_x, right_x, _, _, _ = self.img_proc.find_line()
+        left_x, right_x, _, _, is_crosswalk = self.img_proc.find_line()
 
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
@@ -312,7 +325,7 @@ class CAM_DRIVING:
         self.prev_x_right = self.x_right
         self.prev_x_midpoint = self.x_midpoint
 
-        return self.x_midpoint
+        return self.x_midpoint, is_crosswalk
 
     def find_midpoint_visualize(self):
         while not self.img_proc.is_image_ready():
@@ -323,7 +336,7 @@ class CAM_DRIVING:
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
 
         left_x, right_x, left_y, right_y, _ = self.img_proc.find_line()
-
+        
         for i in range(0, len(left_x), 2):
             x1, x2 = left_x[i], left_x[i+1]
             y1, y2 = left_y[i], left_y[i+1]
@@ -415,7 +428,7 @@ class LIDAR_DRIVING:
 
     def preprocess_lidar_data(self):
         if self.lidar_points is None:
-            return None
+            return np.asarray([[0,0]])
 
         ranges = np.array(self.lidar_points)
         valid_idx = (ranges > 0.1) & (ranges < 0.70)
@@ -425,14 +438,14 @@ class LIDAR_DRIVING:
 
     def cluster(self, points):
         if len(points) < 1:
-            return None, np.array([[0, 0]]), None, None, None
+            return None, np.array([[0, 0]]), 0, 0, None
 
         db = DBSCAN(eps=0.5, min_samples=1).fit(points)
         labels = db.labels_
 
         clusters = [points[labels == label] for label in set(labels) if label != -1]
         if not clusters:
-            return None, np.array([[0, 0]]), None, None, None
+            return None, np.array([[0, 0]]), 0, 0, None
 
         largest_cluster = max(clusters, key=len)
         center = np.mean(largest_cluster, axis=0)
@@ -492,6 +505,7 @@ class LIDAR_DRIVING:
         
         if closest_cluster_center is not None:
             distance = np.linalg.norm(closest_cluster_center - np.array([0, 0]))
+            distance = round(distance, 3)
         else:
             distance = float("inf")
         
@@ -636,77 +650,75 @@ class LIDAR_DRIVING:
         self.min_max_point_pub.publish(marker)
 
 # MAIN LOOP
-if __name__ == '__main__':
-    xycar = CONTROL()
-    cam_drive = CAM_DRIVING()
-    lidar_drive = LIDAR_DRIVING()
-    ar_tag = AR_TAG()
-    traffic_light = TRAFFIC_LIGHT()
+# if __name__ == '__main__':
+#     xycar = CONTROL()
+#     cam_drive = CAM_DRIVING()
+#     lidar_drive = LIDAR_DRIVING()
+#     ar_tag = AR_TAG()
+#     traffic_light = TRAFFIC_LIGHT()
 
-    speed = 0
-    drive_mode = "CAM"      # Cam or Lidar mode
+#     speed = 5
+#     drive_mode = "CAM"      # Cam or Lidar mode
     
-    while not rospy.is_shutdown():
-        # ar_ID, ar_distance = ar_tag.AR_detect()
-        # crosswalk_flag = cam_drive.detect_crosswalk()
-        # cam_midpoint = cam_drive.find_midpoint_visualize()
+#     while not rospy.is_shutdown():
+#         ar_ID, ar_distance = ar_tag.AR_detect()
+#         crosswalk_flag = cam_drive.detect_crosswalk()
         
-        # if cam_midpoint is None:
-        #     midpoint = lidar_drive.find_midpoint()
-        # else:
-        #     midpoint = cam_midpoint
+#         # if cam_midpoint is None:
+#         #     midpoint = lidar_drive.find_midpoint()
+#         # else:
+#         #     midpoint = cam_midpoint
         
-        # midpoint = cam_midpoint
+#         # midpoint = cam_midpoint
         
-        ########## Lidar 클래스에서 젤 가까운 클러스터 위치, 거리 받아오는 알고리즘 ##########
-        closest_cluster_center, distance = lidar_drive.find_closest_cluster()
-        ##################################################################################
+#         ########## Lidar 클래스에서 젤 가까운 클러스터 위치, 거리 받아오는 알고리즘 ##########
+#         closest_cluster_center, distance = lidar_drive.find_closest_cluster()
+#         ##################################################################################
 
-        #####################[CAM DRIVE TEST]#############################
-        # midpoint = cam_drive.find_midpoint_visualize()
-        # if midpoint is not None:
-        #     angle = xycar.pid(midpoint, "LINE TRACKING")
-        #     speed = 5
-        #     xycar.drive(angle, speed)
-        #########################################################
+#         #####################[CAM DRIVE TEST]#############################
+#         midpoint = cam_drive.find_midpoint_visualize()
+#         if midpoint is not None:
+#             angle = xycar.pid(midpoint, "LINE TRACKING")
+#             xycar.drive(angle, speed)
+#         #########################################################
 
-        ######################[TUNNEL DRIVE TEST]###################################
-        midpoint = lidar_drive.find_midpoint()
-        if midpoint is not None:
-            angle = xycar.pid(midpoint, "TUNNEL DRIVING") -20
-            speed = 5
-            xycar.drive(angle, speed)
-        ############################################################################
+#         ######################[TUNNEL DRIVE TEST]###################################
+#         # midpoint = lidar_drive.find_midpoint()
+#         # if midpoint is not None:
+#         #     angle = xycar.pid(midpoint, "TUNNEL DRIVING") -20
+#         #     speed = 5
+#         #     xycar.drive(angle, speed)
+#         ############################################################################
 
-        ######################[AVOID OBSTACLE TEST]###################################
-        # obs_xycar_theta = lidar_drive.find_obstacle()
-        # angle = xycar.pid(obs_xycar_theta, "AVOID OBSTACLE")
-        # speed = 5 # Adjust speed as necessary
-        # xycar.drive(angle, speed)
-        ###########################################################################
+#         ######################[AVOID OBSTACLE TEST]###################################
+#         # obs_xycar_theta = lidar_drive.find_obstacle()
+#         # angle = xycar.pid(obs_xycar_theta, "AVOID OBSTACLE")
+#         # speed = 5 # Adjust speed as necessary
+#         # xycar.drive(angle, speed)
+#         ###########################################################################
 
-        # if ar_ID is not None and ar_distance is not None:
-        #     if ar_ID == 4:
-        #         gostop, direction = traffic_light.traffic_crossroad()
-        #         if ar_distance < 0.1:
-        #             speed = 0
-        #         elif direction is not None:
-        #             if direction == 'left':
+#         # if ar_ID is not None and ar_distance is not None:
+#         #     if ar_ID == 4:
+#         #         gostop, direction = traffic_light.traffic_crossroad()
+#         #         if ar_distance < 0.1:
+#         #             speed = 0
+#         #         elif direction is not None:
+#         #             if direction == 'left':
 
-        #                 pass
+#         #                 pass
                     
-        #             elif direction == 'right':
+#         #             elif direction == 'right':
 
-        #                 pass
-        #     elif ar_ID == 2:
-        #         gostop = traffic_light.traffic_single()
+#         #                 pass
+#         #     elif ar_ID == 2:
+#         #         gostop = traffic_light.traffic_single()
 
-        # if crosswalk_flag == 1:
-        #     if gostop == 'stop':
-        #         speed = 0
+#         # if crosswalk_flag == 1:
+#         #     if gostop == 'stop':
+#         #         speed = 0
 
-        # xycar.drive()
-        RATE.sleep()
+#         # xycar.drive()
+#         # RATE.sleep()
 
 # MAIN LOOP REAL Ver.
 if __name__ == '__main__':
@@ -719,7 +731,9 @@ if __name__ == '__main__':
     speed = 5
     can_we_go = 1
     is_done = False
+    crosswalk_flag = False
     is_single_color = True
+    tunnel_start_time = None
     drive_mode = "CAM"      # Camera or Lidar mode
     
     # Need to delete
@@ -733,22 +747,28 @@ if __name__ == '__main__':
         ar_ID, ar_distance = ar_tag.AR_detect()
         
         # Detect Crosswalk
-        crosswalk_flag = cam_drive.detect_crosswalk()
+        # crosswalk_flag = cam_drive.detect_crosswalk()
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
         
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
-            pass_stack = 0
-            drive_mode = "LIDAR"
+            if tunnel_start_time is None:
+                tunnel_start_time = time.time()
+        
+        if tunnel_start_time:
+            if time.time() - tunnel_start_time > 2.0:    
+                pass_stack = 0
+                drive_mode = "LIDAR"
+                tunnel_start_time = None
 
         # Find Midpoint to follow
         if drive_mode == "CAM":
-            midpoint = cam_drive.find_midpoint_visualize()
+            midpoint, crosswalk_flag = cam_drive.find_midpoint()
             
             # Avoid Obstacle
             if ar_ID is None and cluster_distance < 0.3:
-                midpoint += closest_cluster_center[0]
+                midpoint += closest_cluster_center[0] * 300
                 
         # Tunnel Mission
         else:
@@ -807,6 +827,7 @@ if __name__ == '__main__':
         xycar.drive(angle, speed * can_we_go)
         
         if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
+            print("------------------------------")
             print("Present Mode:", drive_mode)
             print("Present AR ID:", ar_ID)
             print("Present Crosswalk Flag:", crosswalk_flag)            
@@ -819,5 +840,3 @@ if __name__ == '__main__':
         prev_ar_ID = ar_ID
         prev_crw_flag = crosswalk_flag
         prev_cluster_distance = cluster_distance
-        
-        # RATE.sleep()
