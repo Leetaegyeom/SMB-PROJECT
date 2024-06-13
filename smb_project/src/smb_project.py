@@ -488,9 +488,13 @@ class LIDAR_DRIVING:
             RATE.sleep()
         
         points = self.preprocess_lidar_data()
-        _,_,_,_,closest_cluster = self.cluster(points)
+        _, _, _, _, closest_cluster = self.cluster(points)
         closest_cluster_center = np.mean(closest_cluster, axis=0) if closest_cluster is not None else None
-        distance = np.linalg.norm(closest_cluster_center - np.array([0, 0]))
+        
+        if closest_cluster_center is not None:
+            distance = np.linalg.norm(closest_cluster_center - np.array([0, 0]))
+        else:
+            distance = float("inf")
         
         return closest_cluster_center, distance
 
@@ -716,8 +720,15 @@ if __name__ == '__main__':
     speed = 5
     can_we_go = 1
     is_done = False
+    is_single_color = True
     drive_mode = "CAM"      # Camera or Lidar mode
     
+    # Need to delete
+    prev_mode = drive_mode
+    prev_ar_ID = 0
+    prev_crw_flag = 0
+    prev_cluster_distance = float("inf")
+                
     while not rospy.is_shutdown():
         # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
@@ -752,8 +763,11 @@ if __name__ == '__main__':
                 drive_mode = "CAM"
                 
         # Crosswalk
-        if crosswalk_flag:
+        if crosswalk_flag and is_single_color:
             can_we_go = traffic_light.traffic_single()
+            
+            if can_we_go == 1:
+                is_single_color = False
         
         # Crossroads & Stop Mission
         if ar_ID:
@@ -762,10 +776,10 @@ if __name__ == '__main__':
                 
                 if can_we_go == 1:
                     for _ in range(5):
-                        xycar.drvie(0, speed)
+                        xycar.drive(0, speed)
                         RATE.sleep()
                     for _ in range(10):
-                        xycar.drvie(direction, speed)
+                        xycar.drive(direction, speed)
                         RATE.sleep()
                     
                     continue    # Find Line Again
@@ -775,21 +789,36 @@ if __name__ == '__main__':
                     _, ar_distance = ar_tag.AR_detect()
                     
                     # Need to make Angle Calculate Module !!!
-                    #
-                    #
+                    # 
+                    # 
                     # # # # # # # # # # # # # # # # # #
                 
                     if ar_distance < 0.2:
                         is_done = True
                         break
                     
-                    xycar.drive(angle, speed)
+                    xycar.drive(0, speed)
                     RATE.sleep()
         
         if is_done:
+            print("Race is done.")
             break
             
         angle = xycar.pid(midpoint)
         xycar.drive(angle, speed * can_we_go)
+        
+        if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
+            print(f"Present Mode: {drive_mode}")
+            print(f"Present AR ID: {ar_ID}")
+            print(f"Present Crosswalk Flag: {crosswalk_flag}")            
+            if cluster_distance == float("inf"):
+                print("There is no Cluster!!!")
+            else:
+                print(f"Present Cluster Distance: {cluster_distance:.2f}")
+        
+        prev_mode = drive_mode
+        prev_ar_ID = ar_ID
+        prev_crw_flag = crosswalk_flag
+        prev_cluster_distance = cluster_distance
         
         # RATE.sleep()
