@@ -437,7 +437,7 @@ class LIDAR_DRIVING:
         return points
 
     def cluster(self, points):
-        if len(points) < 1:
+        if len(points) <= 1:
             return None, np.array([[0, 0]]), 0, 0, None
 
         db = DBSCAN(eps=0.5, min_samples=1).fit(points)
@@ -470,7 +470,13 @@ class LIDAR_DRIVING:
             RATE.sleep()
 
         points = self.preprocess_lidar_data()
+        if len(points) <= 1:
+            return 50
+
         obs_center, obs_clusters, _, _, _ = self.cluster(points)
+
+        if obs_center is None:
+            return 50
 
         xycacr2obs_vec = np.asarray(obs_center)
         xycacr2obs_theta = np.degrees(np.arctan2(xycacr2obs_vec[1], xycacr2obs_vec[0])) * self.THETA2INPUT
@@ -481,9 +487,14 @@ class LIDAR_DRIVING:
             RATE.sleep()
 
         points = self.preprocess_lidar_data()
+        if len(points) <= 1:
+            return 50
+
         self.publish_lidar_points(points)
-        _, clusters, ymax_idx, ymin_idx, _ = self.cluster(points)
-        self.publish_clustered_points(clusters)
+        center, clusters, ymax_idx, ymin_idx, _ = self.cluster(points)
+        if clusters is None:
+            return 50
+
         max_point = points[ymax_idx]
         min_point = points[ymin_idx]
         
@@ -493,6 +504,14 @@ class LIDAR_DRIVING:
         self.publish_ref_vector(min_max_vec)
 
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0])) * self.THETA2INPUT
+
+        distance = np.linalg.norm(center)
+        if distance < 0.1:
+            if ref_angle < 0:
+                ref_angle += 20
+            elif ref_angle > 0:
+                ref_angle -= 20
+
         return ref_angle
 
     def find_closest_cluster(self):
@@ -500,11 +519,14 @@ class LIDAR_DRIVING:
             RATE.sleep()
         
         points = self.preprocess_lidar_data()
+        if len(points) <= 1:
+            return None, float("inf")
+
         _, _, _, _, closest_cluster = self.cluster(points)
         closest_cluster_center = np.mean(closest_cluster, axis=0) if closest_cluster is not None else None
         
         if closest_cluster_center is not None:
-            distance = np.linalg.norm(closest_cluster_center - np.array([0, 0]))
+            distance = np.linalg.norm(closest_cluster_center)
             distance = round(distance, 3)
         else:
             distance = float("inf")
@@ -532,36 +554,6 @@ class LIDAR_DRIVING:
         marker.color.g = 1.0
         marker.color.b = 0.0
         self.lidar_xy_points_pub.publish(marker)
-
-    # def publish_wall_centers(self, right_wall_center, left_wall_center):
-    #     marker = Marker()
-    #     marker.header.frame_id = "base_link"
-    #     marker.type = Marker.POINTS
-    #     marker.action = Marker.ADD
-
-    #     # RIGHT
-    #     right_point = Point()
-    #     right_point.x = right_wall_center[0]
-    #     right_point.y = right_wall_center[1]
-    #     right_point.z = 0.1
-    #     marker.points.append(right_point)
-
-    #     # LEFT
-    #     left_point = Point()
-    #     left_point.x = left_wall_center[0]
-    #     left_point.y = left_wall_center[1]
-    #     left_point.z = 0.1
-    #     marker.points.append(left_point)
-
-    #     marker.scale.x = 0.2
-    #     marker.scale.y = 0.2
-    #     marker.scale.z = 0.2
-    #     marker.color.a = 1.0
-    #     marker.color.r = 1.0
-    #     marker.color.g = 0.0
-    #     marker.color.b = 0.0
-
-    #     self.wall_centers_pub.publish(marker)
 
     def publish_clustered_points(self, clustered_points):
         marker = Marker()
@@ -624,7 +616,7 @@ class LIDAR_DRIVING:
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
         marker.action = Marker.ADD
-        # print(min_point)
+
         # MIN
         min_point = Point()
         min_point.x = min_point_[0]
@@ -648,7 +640,6 @@ class LIDAR_DRIVING:
         marker.color.b = 0.0
 
         self.min_max_point_pub.publish(marker)
-
 # MAIN LOOP
 # if __name__ == '__main__':
 #     xycar = CONTROL()
@@ -773,7 +764,7 @@ if __name__ == '__main__':
         # Tunnel Mission
         else:
             midpoint = lidar_drive.find_midpoint()
-            
+
             if closest_cluster_center is None:
                 pass_stack += 1
             
