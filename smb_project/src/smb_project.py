@@ -151,7 +151,19 @@ class IMG_PROCESSING:
                 right_x.append(x2)
                 right_y.append(y1)
                 right_y.append(y2)
-                    
+            
+            elif x1 < WIDTH / 2 and x2 < WIDTH / 2:
+                left_x.append(x1)
+                left_x.append(x2)
+                left_y.append(y1)
+                left_y.append(y2)
+
+            elif x1 > WIDTH / 2 and x2 > WIDTH / 2:
+                right_x.append(x1)
+                right_x.append(x2)
+                right_y.append(y1)
+                right_y.append(y2)
+
         # Define ROI
         roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
 
