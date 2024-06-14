@@ -152,17 +152,17 @@ class IMG_PROCESSING:
                 right_y.append(y1)
                 right_y.append(y2)
             
-            elif x1 < WIDTH / 2 and x2 < WIDTH / 2:
-                left_x.append(x1)
-                left_x.append(x2)
-                left_y.append(y1)
-                left_y.append(y2)
+            # elif x1 < WIDTH / 2 and x2 < WIDTH / 2:
+            #     left_x.append(x1)
+            #     left_x.append(x2)
+            #     left_y.append(y1)
+            #     left_y.append(y2)
 
-            elif x1 > WIDTH / 2 and x2 > WIDTH / 2:
-                right_x.append(x1)
-                right_x.append(x2)
-                right_y.append(y1)
-                right_y.append(y2)
+            # elif x1 > WIDTH / 2 and x2 > WIDTH / 2:
+            #     right_x.append(x1)
+            #     right_x.append(x2)
+            #     right_y.append(y1)
+            #     right_y.append(y2)
 
         # Define ROI
         roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
@@ -328,7 +328,8 @@ class CAM_DRIVING:
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
 
         else:
-            if time.time() - self.start_time > 15:
+            if time.time() - self.start_time > 12:
+                print("Time is Gold!!! > 12s")
                 self.x_midpoint = 0
 
         self.prev_x_left = self.x_left
@@ -660,12 +661,14 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
+        print(ar_ID, ar_distance)
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
         
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
             if tunnel_start_time is None:
+                print("Tunnel Start!!!")
                 tunnel_start_time = time.time()
         
         if tunnel_start_time:
@@ -696,8 +699,10 @@ if __name__ == '__main__':
         # Crosswalk
         if crosswalk_flag and is_single_color:
             can_we_go = traffic_light.traffic_single()
+            print("Wait Green Light. . .")
             
             if can_we_go == 1:
+                print("Single Color Go Go Go!!!")
                 is_single_color = False
         
         # Crossroads & Stop Mission
@@ -706,7 +711,7 @@ if __name__ == '__main__':
                 can_we_go, direction = traffic_light.traffic_crossroad()
                 
                 if can_we_go == 1:
-                    for _ in range(5):
+                    for _ in range(10):
                         xycar.drive(0, speed)
                         RATE.sleep()
                     for _ in range(10):
@@ -739,17 +744,17 @@ if __name__ == '__main__':
         xycar.drive(angle, speed * can_we_go)
         
         # Need to delete (For Debug)
-        if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
-            print("------------------------------")
-            print("Present Mode:", drive_mode)
-            print("Present AR ID:", ar_ID)
-            print("Present Crosswalk Flag:", crosswalk_flag)            
-            if cluster_distance == float("inf"):
-                print("There is no Cluster!!!")
-            else:
-                print("Present Cluster Distance:", cluster_distance)
+        # if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
+        #     print("------------------------------")
+        #     print("Present Mode:", drive_mode)
+        #     print("Present AR ID:", ar_ID)
+        #     print("Present Crosswalk Flag:", crosswalk_flag)            
+        #     if cluster_distance == float("inf"):
+        #         print("There is no Cluster!!!")
+        #     else:
+        #         print("Present Cluster Distance:", cluster_distance)
         
-        prev_mode = drive_mode
-        prev_ar_ID = ar_ID
-        prev_crw_flag = crosswalk_flag
-        prev_cluster_distance = cluster_distance
+        # prev_mode = drive_mode
+        # prev_ar_ID = ar_ID
+        # prev_crw_flag = crosswalk_flag
+        # prev_cluster_distance = cluster_distance
