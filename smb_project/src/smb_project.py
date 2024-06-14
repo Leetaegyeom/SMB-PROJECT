@@ -742,14 +742,17 @@ if __name__ == '__main__':
             print("Let's Go", direction)
 
             if direction == "left":
-                midpoint, _ = cam_drive.find_midpoint_crosswalk_left()
+                midpoint, crosswalk_flag = cam_drive.find_midpoint_crosswalk_left()
 
             elif direction == "right":
-                midpoint, _ = cam_drive.find_midpoint_crosswalk_right()
+                midpoint, crosswalk_flag = cam_drive.find_midpoint_crosswalk_right()
 
             if crosswalk_flag == True:
                 prev_ar_ID = 0
                 break
+
+            angle = xycar.pid(midpoint)
+            xycar.drive(angle, speed)
         
         if is_done:
             print("Race is done.")
