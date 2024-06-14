@@ -20,7 +20,7 @@ rospy.init_node('xycar')
 CONTROL_TIME = 0.01
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 330
+ROI_ROW = 240
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
@@ -102,7 +102,6 @@ class IMG_PROCESSING:
         self.bridge = CvBridge()
         self.img_ready = False
         self.CAM_FPS = 30
-        self.ROI_HEIGHT = HEIGHT - ROI_ROW 
         
     def img_callback(self, data):
         self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -128,8 +127,6 @@ class IMG_PROCESSING:
         display_img = img.copy()
         line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
 
-        # cv2.imshow('canny', edge_img)
-
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
         if all_lines is None:
             return [], [], [], [], 0
@@ -146,28 +143,14 @@ class IMG_PROCESSING:
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
-                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
                 
             elif slope > 0.2 and x1 > WIDTH / 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
                 right_y.append(y2)
-                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            
-            # elif x1 < WIDTH / 2 and x2 < WIDTH / 2:
-            #      left_x.append(x1)
-            #      left_x.append(x2)
-            #      left_y.append(y1)
-            #      left_y.append(y2)
-            #      cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
-
-            # elif x1 > WIDTH / 2 and x2 > WIDTH / 2:
-            #      right_x.append(x1)
-            #      right_x.append(x2)
-            #      right_y.append(y1)
-            #      right_y.append(y2)
-            #      cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
         # Define ROI
         roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
@@ -184,8 +167,8 @@ class IMG_PROCESSING:
 
         # Determine if it's a crosswalk based on the white pixel ratio
         is_crosswalk = white_pixel_ratio > 0.3
-        # display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img 
-        # cv2.imshow('find_line', display_img)
+        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img 
+        cv2.imshow('find_line', display_img)
 
         return left_x, right_x, left_y, right_y, is_crosswalk
 
@@ -273,22 +256,18 @@ class TRAFFIC_LIGHT:
         return gostop
     
     def traffic_crossroad(self):
-        direction = 0
-        gostop = 0
+        direction = None
+        gostop = 1
 
         if self.left_color is None or self.right_color is None or self.time_count is None:
             print("There is no Traffic Light!!!")
             return gostop, direction
 
-        if self.time_count >= 3:
-            gostop = 1
-        else:
-            gostop = 0
-
-        if self.left_color == 'R':
-            direction = 30
-        else:
-            direction = -30
+        if self.left_color == 'G':
+            if self.time_count >= 5:
+                direction = "left"
+            else:
+                direction = "right"
 
         return gostop, direction
         
@@ -324,7 +303,7 @@ class CAM_DRIVING:
         if left_x and right_x:
             self.x_left = sum(left_x) / len(left_x)
             self.x_right = sum(right_x) / len(right_x)
-            self.x_midpoint = (self.x_left + self.x_right) // 2
+            self.x_midpoint = (self.x_left + self.x_right) / 2
 
         elif left_x:
             self.x_left = sum(left_x) / len(left_x)
@@ -346,69 +325,103 @@ class CAM_DRIVING:
         self.prev_x_midpoint = self.x_midpoint
 
         return self.x_midpoint, is_crosswalk
-
-    def find_midpoint_visualize(self):
+    
+    def find_midpoint_crosswalk_left(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
 
-        img = self.img_proc.get_img()
-        display_img = img
-        line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
+        left_of_left = []
+        right_of_left = []
+        left_of_right = []
+        right_of_right = []
+        left_x, right_x, _, _, is_crosswalk = self.img_proc.find_line()
 
-        left_x, right_x, left_y, right_y, is_crosswalk = self.img_proc.find_line()
-        
         for i in range(0, len(left_x), 2):
-            x1, x2 = left_x[i], left_x[i+1]
-            y1, y2 = left_y[i], left_y[i+1]
-            cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            if left_x[i] < WIDTH / 4 and left_x[i+1] < WIDTH / 4:
+                left_of_left.append(left_x[i])
+                left_of_left.append(left_x[i+1])
+            elif left_x[i] > WIDTH / 4 and left_x[i+1] > WIDTH / 4:
+                right_of_left.append(left_x[i])
+                right_of_left.append(left_x[i+1])
 
         for i in range(0, len(right_x), 2):
-            x1, x2 = right_x[i], right_x[i+1]
-            y1, y2 = right_y[i], right_y[i+1]
-            cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+            if right_x[i] < WIDTH * (3 / 4) and right_x[i+1] < WIDTH * (3 / 4):
+                left_of_right.append(left_x[i])
+                left_of_right.append(left_x[i+1])
+            elif right_x[i] > WIDTH * (3 / 4) and right_x[i+1] > WIDTH * (3 / 4):
+                right_of_right.append(left_x[i])
+                right_of_right.append(left_x[i+1])
 
-        if left_x and right_x:
-            self.x_left = sum(left_x) / len(left_x)
-            self.y_left = sum(left_y) / len(left_y)
-            self.x_right = sum(right_x) / len(right_x)
-            self.y_right = sum(right_y) / len(right_y)            
+        if left_of_left and right_of_right:
+            self.x_left = sum(left_of_left) / len(left_of_left)
+            self.x_right = sum(right_of_right) / len(right_of_right)
             self.x_midpoint = (self.x_left + self.x_right) // 2
-            self.y_midpoint = (self.y_left + self.y_right) // 2
-            cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
-            cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
 
-        elif left_x:
-            self.x_left = sum(left_x) / len(left_x)
+        elif left_of_left:
+            self.x_left = sum(left_of_left) / len(left_of_left)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
-            cv2.rectangle(line_img, (self.x_left-5, self.y_left-5), (self.x_left+5, self.y_left+5), (0,255,255), 4)
-            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
 
-        elif right_x:
-            self.x_right = sum(right_x) / len(right_x)
+        elif right_of_right:
+            self.x_right = sum(right_of_right) / len(right_of_right)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
-            cv2.rectangle(line_img, (self.x_right-5, self.y_right-5), (self.x_right+5, self.y_right+5), (0,255,255), 4)
-            cv2.rectangle(line_img, (self.prev_x_left-5, self.prev_y_left-5), (self.prev_x_left+5, self.prev_y_left+5), (0,0,255), 4)
 
-        else:
-            self.x_midpoint = 0
-            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
-            cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
-            if time.time() - self.start_time > 12:
-                print("Time is Gold!!! > 12s")
-                self.x_midpoint = 0            
-            
-        cv2.rectangle(line_img, (self.x_midpoint-5, self.y_midpoint-5), (self.x_midpoint+5, self.y_midpoint+5), (255,0,0), 4)
-        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img
-        cv2.imshow('Camera', display_img)
-        cv2.waitKey(1)
-        
+        elif right_of_left and left_of_right:
+            self.x_right = sum(right_of_left) / len(right_of_left)
+            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)            
+
         self.prev_x_left = self.x_left
-        self.prev_y_left = self.y_left
         self.prev_x_right = self.x_right
-        self.prev_y_right = self.y_right
         self.prev_x_midpoint = self.x_midpoint
-        self.prev_y_midpoint = self.y_midpoint
-        
+
+        return self.x_midpoint, is_crosswalk
+    
+    def find_midpoint_crosswalk_right(self):
+        while not self.img_proc.is_image_ready():
+            RATE.sleep()
+
+        left_of_left = []
+        right_of_left = []
+        left_of_right = []
+        right_of_right = []
+        left_x, right_x, _, _, is_crosswalk = self.img_proc.find_line()
+
+        for i in range(0, len(left_x), 2):
+            if left_x[i] < WIDTH / 4 and left_x[i+1] < WIDTH / 4:
+                left_of_left.append(left_x[i])
+                left_of_left.append(left_x[i+1])
+            elif left_x[i] > WIDTH / 4 and left_x[i+1] > WIDTH / 4:
+                right_of_left.append(left_x[i])
+                right_of_left.append(left_x[i+1])
+
+        for i in range(0, len(left_x), 2):
+            if right_x[i] < WIDTH * (3 / 4) and right_x[i+1] < WIDTH * (3 / 4):
+                left_of_right.append(left_x[i])
+                left_of_right.append(left_x[i+1])
+            elif right_x[i] > WIDTH * (3 / 4) and right_x[i+1] > WIDTH * (3 / 4):
+                right_of_right.append(left_x[i])
+                right_of_right.append(left_x[i+1])
+
+        if left_of_left and right_of_right:
+            self.x_left = sum(left_of_left) / len(left_of_left)
+            self.x_right = sum(right_of_right) / len(right_of_right)
+            self.x_midpoint = (self.x_left + self.x_right) // 2
+
+        elif right_of_right:
+            self.x_right = sum(right_of_right) / len(right_of_right)
+            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)        
+
+        elif left_of_left:
+            self.x_left = sum(left_of_left) / len(left_of_left)
+            self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
+
+        elif right_of_left and left_of_right:
+            self.x_right = sum(right_of_left) / len(right_of_left)
+            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)            
+
+        self.prev_x_left = self.x_left
+        self.prev_x_right = self.x_right
+        self.prev_x_midpoint = self.x_midpoint
+
         return self.x_midpoint, is_crosswalk
 
 
@@ -708,21 +721,9 @@ if __name__ == '__main__':
         # Crossroads & Stop Mission
         if ar_ID:
             if ar_ID == 2:
-                print("Go Straight!!!")
-                for _ in range(70):
-                    xycar.drive(0, speed)
-                    RATE.sleep()
-                
-                can_we_go, direction = traffic_light.traffic_crossroad()
-                print("Let's Go", direction)
-                
-                if can_we_go == 1:
-                    for _ in range(10):
-                        xycar.drive(direction, speed)
-                        RATE.sleep()
-                    
-                    continue    # Find Line Again
-            
+                print("Crossroad!!!")
+                prev_ar_ID == 2
+
             elif ar_ID == 4:
                 while True:
                     _, ar_distance = ar_tag.AR_detect()
@@ -735,6 +736,20 @@ if __name__ == '__main__':
                     
                     xycar.drive(0, speed)
                     RATE.sleep()
+        
+        while prev_ar_ID == 2:
+            can_we_go, direction = traffic_light.traffic_crossroad()
+            print("Let's Go", direction)
+
+            if direction == "left":
+                midpoint, _ = cam_drive.find_midpoint_crosswalk_left()
+
+            elif direction == "right":
+                midpoint, _ = cam_drive.find_midpoint_crosswalk_right()
+
+            if crosswalk_flag == True:
+                prev_ar_ID = 0
+                break
         
         if is_done:
             print("Race is done.")
