@@ -21,7 +21,6 @@ CONTROL_TIME = 0.01
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
 ROI_ROW = 330
-ROI_OFFSET = 100
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
@@ -126,10 +125,12 @@ class IMG_PROCESSING:
         # Canny Edge Detection
         edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
         roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
+        display_img = img.copy()
+        line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
 
         # cv2.imshow('canny', edge_img)
 
-        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
+        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
         if all_lines is None:
             return [], [], [], [], 0
 
@@ -145,24 +146,28 @@ class IMG_PROCESSING:
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
+                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
                 
             elif slope > 0.2 and x1 > WIDTH / 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
                 right_y.append(y2)
+                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
             
             # elif x1 < WIDTH / 2 and x2 < WIDTH / 2:
-            #     left_x.append(x1)
-            #     left_x.append(x2)
-            #     left_y.append(y1)
-            #     left_y.append(y2)
+            #      left_x.append(x1)
+            #      left_x.append(x2)
+            #      left_y.append(y1)
+            #      left_y.append(y2)
+            #      cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
             # elif x1 > WIDTH / 2 and x2 > WIDTH / 2:
-            #     right_x.append(x1)
-            #     right_x.append(x2)
-            #     right_y.append(y1)
-            #     right_y.append(y2)
+            #      right_x.append(x1)
+            #      right_x.append(x2)
+            #      right_y.append(y1)
+            #      right_y.append(y2)
+            #      cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
         # Define ROI
         roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
@@ -170,7 +175,7 @@ class IMG_PROCESSING:
         _, binary_img = cv2.threshold(roi_gray, 100, 255, cv2.THRESH_BINARY)
         
         # cv2.imshow('bin', binary_img)
-        cv2.waitKey(1)
+        # cv2.waitKey(1)
 
         # Calculate the white pixel ratio
         white_pixel_count = cv2.countNonZero(binary_img)
@@ -178,7 +183,9 @@ class IMG_PROCESSING:
         white_pixel_ratio = float(white_pixel_count) / float(total_pixels)
 
         # Determine if it's a crosswalk based on the white pixel ratio
-        is_crosswalk = white_pixel_ratio > 0.35
+        is_crosswalk = white_pixel_ratio > 0.3
+        # display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img 
+        # cv2.imshow('find_line', display_img)
 
         return left_x, right_x, left_y, right_y, is_crosswalk
 
@@ -331,6 +338,8 @@ class CAM_DRIVING:
             if time.time() - self.start_time > 12:
                 print("Time is Gold!!! > 12s")
                 self.x_midpoint = 0
+            else:
+                self.x_midpoint = self.prev_x_midpoint
 
         self.prev_x_left = self.x_left
         self.prev_x_right = self.x_right
@@ -344,9 +353,9 @@ class CAM_DRIVING:
 
         img = self.img_proc.get_img()
         display_img = img
-        line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
+        line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
 
-        left_x, right_x, left_y, right_y, _ = self.img_proc.find_line()
+        left_x, right_x, left_y, right_y, is_crosswalk = self.img_proc.find_line()
         
         for i in range(0, len(left_x), 2):
             x1, x2 = left_x[i], left_x[i+1]
@@ -384,9 +393,12 @@ class CAM_DRIVING:
             self.x_midpoint = 0
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
             cv2.rectangle(line_img, (self.prev_x_right-5, self.prev_y_right-5), (self.prev_x_right+5, self.prev_y_right+5), (0,0,255), 4)
+            if time.time() - self.start_time > 12:
+                print("Time is Gold!!! > 12s")
+                self.x_midpoint = 0            
             
         cv2.rectangle(line_img, (self.x_midpoint-5, self.y_midpoint-5), (self.x_midpoint+5, self.y_midpoint+5), (255,0,0), 4)
-        display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img
+        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img
         cv2.imshow('Camera', display_img)
         cv2.waitKey(1)
         
@@ -397,23 +409,7 @@ class CAM_DRIVING:
         self.prev_x_midpoint = self.x_midpoint
         self.prev_y_midpoint = self.y_midpoint
         
-        return self.x_midpoint
-
-    def detect_crosswalk(self):
-        while not self.img_proc.is_image_ready():
-            RATE.sleep()
-
-        horiz_line_threshold = 10
-        crosswalk_flag = None
-
-        _, _, _, _, horiz_line_num = self.img_proc.find_line()
-
-        if horiz_line_num > horiz_line_threshold:
-            crosswalk_flag = 1
-        else:
-            crosswalk_flag = 0
-
-        return crosswalk_flag
+        return self.x_midpoint, is_crosswalk
 
 
 # LINE TRACKING BY USING LIDAR
@@ -644,7 +640,7 @@ if __name__ == '__main__':
     ar_tag = AR_TAG()
     traffic_light = TRAFFIC_LIGHT()
 
-    speed = 5
+    speed = 20
     can_we_go = 1
     is_done = False
     crosswalk_flag = False
@@ -661,7 +657,7 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
-        print(ar_ID, ar_distance)
+        # print(ar_ID, ar_distance)
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
@@ -695,25 +691,32 @@ if __name__ == '__main__':
             # Finish Tunnel
             if pass_stack > TUNNEL_OUT_THRESHOLD:
                 drive_mode = "CAM"
-                
+                              
         # Crosswalk
         if crosswalk_flag and is_single_color:
             can_we_go = traffic_light.traffic_single()
-            print("Wait Green Light. . .")
             
-            if can_we_go == 1:
-                print("Single Color Go Go Go!!!")
-                is_single_color = False
+            while can_we_go == 0:
+                can_we_go = traffic_light.traffic_single()
+                xycar.drive(angle, speed * can_we_go)
+                
+                RATE.sleep()
+                
+            is_single_color = False
+            print("Single Color Go Go Go!!!")
         
         # Crossroads & Stop Mission
         if ar_ID:
             if ar_ID == 2:
+                print("Go Straight!!!")
+                for _ in range(70):
+                    xycar.drive(0, speed)
+                    RATE.sleep()
+                
                 can_we_go, direction = traffic_light.traffic_crossroad()
+                print("Let's Go", direction)
                 
                 if can_we_go == 1:
-                    for _ in range(10):
-                        xycar.drive(0, speed)
-                        RATE.sleep()
                     for _ in range(10):
                         xycar.drive(direction, speed)
                         RATE.sleep()
@@ -723,13 +726,10 @@ if __name__ == '__main__':
             elif ar_ID == 4:
                 while True:
                     _, ar_distance = ar_tag.AR_detect()
-                    
-                    # Need to make Angle Calculate Module !!!
-                    # 
-                    # 
-                    # # # # # # # # # # # # # # # # # #
+                    print(ar_distance)
                 
-                    if ar_distance < 0.2:
+                    if ar_distance < 0.6:
+                        xycar.drive(0, 0)
                         is_done = True
                         break
                     
@@ -743,7 +743,7 @@ if __name__ == '__main__':
         angle = xycar.pid(midpoint)
         xycar.drive(angle, speed * can_we_go)
         
-        # Need to delete (For Debug)
+        # # Need to delete (For Debug)
         # if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
         #     print("------------------------------")
         #     print("Present Mode:", drive_mode)
