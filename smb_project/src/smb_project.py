@@ -271,6 +271,7 @@ class TRAFFIC_LIGHT:
                 direction = "left"
             else:
                 direction = "right"
+                
         if self.right_color == 'G' or self.right_color == 'Y':
             if self.time_count >= 5:
                 direction = "right"
