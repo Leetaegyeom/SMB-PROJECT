@@ -21,6 +21,7 @@ CONTROL_TIME = 0.01
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
 ROI_ROW = 240
+ROI_OFFSET = 50
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
@@ -122,9 +123,9 @@ class IMG_PROCESSING:
         
         # Canny Edge Detection
         edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
-        roi_edge_img = edge_img[ROI_ROW:HEIGHT, 0:WIDTH]
-        display_img = img.copy()
-        line_img = img.copy()[ROI_ROW:HEIGHT, 0:WIDTH]
+        roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
+        display_img = self.image.copy()
+        line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
         if all_lines is None:
@@ -142,14 +143,14 @@ class IMG_PROCESSING:
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
-                cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
                 
             elif slope > 0.2 and x1 > WIDTH / 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
                 right_y.append(y2)
-                cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
         # Define ROI
         roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
@@ -166,8 +167,8 @@ class IMG_PROCESSING:
 
         # Determine if it's a crosswalk based on the white pixel ratio
         is_crosswalk = white_pixel_ratio > 0.3
-        display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img 
-        # cv2.imshow('find_line', display_img)
+        # display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img 
+        #cv2.imshow('find_line', display_img)
 
         return left_x, right_x, left_y, right_y, is_crosswalk
 
@@ -262,11 +263,16 @@ class TRAFFIC_LIGHT:
             print("There is no Traffic Light!!!")
             return gostop, direction
 
-        if self.left_color == 'G':
+        if self.left_color == 'G' or self.left_color == 'Y':
             if self.time_count >= 5:
                 direction = "left"
             else:
                 direction = "right"
+        if self.right_color == 'G' or self.right_color == 'Y':
+            if self.time_count >= 5:
+                direction = "right"
+            else:
+                direction = "left"
 
         return gostop, direction
         
@@ -313,8 +319,7 @@ class CAM_DRIVING:
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
 
         else:
-            if time.time() - self.start_time > 12:
-                # print("Time is Gold!!! > 12s")
+            if 20 > time.time() - self.start_time > 12:
                 self.x_midpoint = 0
             else:
                 self.x_midpoint = self.prev_x_midpoint
@@ -345,11 +350,11 @@ class CAM_DRIVING:
 
         for i in range(0, len(right_x), 2):
             if right_x[i] < WIDTH * (3 / 4) and right_x[i+1] < WIDTH * (3 / 4):
-                left_of_right.append(left_x[i])
-                left_of_right.append(left_x[i+1])
+                left_of_right.append(right_x[i])
+                left_of_right.append(right_x[i+1])
             elif right_x[i] > WIDTH * (3 / 4) and right_x[i+1] > WIDTH * (3 / 4):
-                right_of_right.append(left_x[i])
-                right_of_right.append(left_x[i+1])
+                right_of_right.append(right_x[i])
+                right_of_right.append(right_x[i+1])
 
         if left_of_left and right_of_right:
             self.x_left = sum(left_of_left) / len(left_of_left)
@@ -392,13 +397,13 @@ class CAM_DRIVING:
                 right_of_left.append(left_x[i])
                 right_of_left.append(left_x[i+1])
 
-        for i in range(0, len(left_x), 2):
+        for i in range(0, len(right_x), 2):
             if right_x[i] < WIDTH * (3 / 4) and right_x[i+1] < WIDTH * (3 / 4):
-                left_of_right.append(left_x[i])
-                left_of_right.append(left_x[i+1])
+                left_of_right.append(right_x[i])
+                left_of_right.append(right_x[i+1])
             elif right_x[i] > WIDTH * (3 / 4) and right_x[i+1] > WIDTH * (3 / 4):
-                right_of_right.append(left_x[i])
-                right_of_right.append(left_x[i+1])
+                right_of_right.append(right_x[i])
+                right_of_right.append(right_x[i+1])
 
         if left_of_left and right_of_right:
             self.x_left = sum(left_of_left) / len(left_of_left)
@@ -446,7 +451,7 @@ class LIDAR_DRIVING:
 
     def get_side_distance(self):
         if self.lidar_points is None:
-            return [0, 0], [0, 0]
+            return 0, 0
         return self.lidar_points[0], self.lidar_points[360]
 
     def preprocess_lidar_data(self):
@@ -660,13 +665,13 @@ if __name__ == '__main__':
     ar_tag = AR_TAG()
     traffic_light = TRAFFIC_LIGHT()
 
+    angle = 0
     speed = 5
     can_we_go = 1
     is_done = False
     crosswalk_flag = False
     is_single_color = True
-    tunnel_start_time = None
-    tunnel_detect_flag = None
+    tunnel_detect_flag = False
     drive_mode = "CAM"      # Camera or Lidar mode
     
     # Need to delete (For Debug)
@@ -686,14 +691,17 @@ if __name__ == '__main__':
         drive_type = "LINE TRACKING"
 
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
-            if tunnel_start_time is None:
+            if not tunnel_detect_flag:
                 print("TUNNEL DETECT!!! __0617")
                 tunnel_detect_flag = True
+
         left, right = lidar_drive.get_side_distance()
+
         if right < 0.3:
             stack_right += 1
         else:
             stack_right = 0
+
         if tunnel_detect_flag:
             side1, side2 = lidar_drive.get_side_distance()
             if cluster_distance < 0.3 and right > 0.5:
@@ -708,8 +716,8 @@ if __name__ == '__main__':
             
             # Avoid Obstacle
             if ar_ID is None and cluster_distance < 0.3:
-                # print("OBSTACLE AVOIDANCE MODE ON!!! __0617")
-                midpoint += closest_cluster_center[0] * 300
+                print("OBSTACLE AVOIDANCE MODE ON!!! __0617")
+                midpoint += closest_cluster_center[0] * 1000
                 
         # Tunnel Mission
         else:
@@ -757,7 +765,7 @@ if __name__ == '__main__':
         if ar_ID:
             if ar_ID == 2:
                 print("Crossroad!!!")
-                prev_ar_ID == 2
+                prev_ar_ID = 2
 
             elif ar_ID == 4:
                 while True:
@@ -774,7 +782,7 @@ if __name__ == '__main__':
         
         while prev_ar_ID == 2:
             can_we_go, direction = traffic_light.traffic_crossroad()
-            print("Let's Go", direction)
+            # print("Let's Go", direction)
 
             if direction == "left":
                 midpoint, crosswalk_flag = cam_drive.find_midpoint_crosswalk_left()
@@ -796,18 +804,18 @@ if __name__ == '__main__':
         angle = xycar.pid(midpoint, drive_type)
         xycar.drive(angle, speed * can_we_go)
         
-        # # Need to delete (For Debug)
-        # if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
-        #     print("------------------------------")
-        #     print("Present Mode:", drive_mode)
-        #     print("Present AR ID:", ar_ID)
-        #     print("Present Crosswalk Flag:", crosswalk_flag)            
-        #     if cluster_distance == float("inf"):
-        #         print("There is no Cluster!!!")
-        #     else:
-        #         print("Present Cluster Distance:", cluster_distance)
+        # Need to delete (For Debug)
+        if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
+            print("------------------------------")
+            print("Present Mode:", drive_mode)
+            print("Present AR ID:", ar_ID)
+            print("Present Crosswalk Flag:", crosswalk_flag)            
+            if cluster_distance == float("inf"):
+                print("There is no Cluster!!!")
+            else:
+                print("Present Cluster Distance:", cluster_distance)
         
-        # prev_mode = drive_mode
-        # prev_ar_ID = ar_ID
-        # prev_crw_flag = crosswalk_flag
-        # prev_cluster_distance = cluster_distance
+        prev_mode = drive_mode
+        prev_ar_ID = ar_ID
+        prev_crw_flag = crosswalk_flag
+        prev_cluster_distance = cluster_distance
