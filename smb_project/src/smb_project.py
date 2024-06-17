@@ -35,7 +35,7 @@ I_GAIN_OBS = 0.0
 D_GAIN_OBS = 0.0
 
 SPEED = 5
-DELTA_50 = 50
+DELTA_50 = 55
 TUNNEL_OUT_THRESHOLD = 10
 
 # SEND CONTROL MESSAGE TO XYCAR
@@ -167,7 +167,7 @@ class IMG_PROCESSING:
         # Determine if it's a crosswalk based on the white pixel ratio
         is_crosswalk = white_pixel_ratio > 0.3
         display_img[ROI_ROW:HEIGHT, 0:WIDTH] = line_img 
-        cv2.imshow('find_line', display_img)
+        # cv2.imshow('find_line', display_img)
 
         return left_x, right_x, left_y, right_y, is_crosswalk
 
@@ -314,7 +314,7 @@ class CAM_DRIVING:
 
         else:
             if time.time() - self.start_time > 12:
-                print("Time is Gold!!! > 12s")
+                # print("Time is Gold!!! > 12s")
                 self.x_midpoint = 0
             else:
                 self.x_midpoint = self.prev_x_midpoint
@@ -444,6 +444,11 @@ class LIDAR_DRIVING:
         self.lidar_points = np.asarray(data.ranges)
         self.lidar_ready = True
 
+    def get_side_distance(self):
+        if self.lidar_points is None:
+            return [0, 0], [0, 0]
+        return self.lidar_points[0], self.lidar_points[360]
+
     def preprocess_lidar_data(self):
         if self.lidar_points is None:
             return np.asarray([[0,0]])
@@ -507,15 +512,15 @@ class LIDAR_DRIVING:
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0])) * self.THETA2INPUT
 
         distance = np.linalg.norm(center)
-        if distance < 0.1:
-            if ref_angle < 0:
-                ref_angle *= -1
-            elif ref_angle > 0:
-                ref_angle *= -1
+        # if distance < 0.1:
+        #     if ref_angle < 0:
+        #         ref_angle *= -1
+        #     elif ref_angle > 0:
+        #         ref_angle *= -1
         
-        if distance > 0.3:
-            print("before tunnel -> zero angle")
-            ref_angle = 50
+        # if distance > 0.3:
+        #     print("before tunnel -> zero angle")
+        #     ref_angle = 50
 
         return ref_angle
 
@@ -655,7 +660,7 @@ if __name__ == '__main__':
     ar_tag = AR_TAG()
     traffic_light = TRAFFIC_LIGHT()
 
-    speed = 0
+    speed = 5
     can_we_go = 1
     is_done = False
     crosswalk_flag = False
@@ -669,23 +674,29 @@ if __name__ == '__main__':
     prev_ar_ID = 0
     prev_crw_flag = 0
     prev_cluster_distance = float("inf")
-                
+    stack = 0
+    stack_right = 0
     while not rospy.is_shutdown():
-        # AR Detect
+       # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
-        
+        # print(cluster_distance)
         drive_type = "LINE TRACKING"
 
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
             if tunnel_start_time is None:
                 print("TUNNEL DETECT!!! __0617")
                 tunnel_detect_flag = True
-        
+        left, right = lidar_drive.get_side_distance()
+        if right < 0.3:
+            stack_right += 1
+        else:
+            stack_right = 0
         if tunnel_detect_flag:
-            if cluster_distance < 0.1:
+            side1, side2 = lidar_drive.get_side_distance()
+            if cluster_distance < 0.3 and right > 0.5:
                 print("TUNNEL DRIVE MODE ON!!! __0617")    
                 pass_stack = 0
                 drive_mode = "LIDAR"
@@ -697,18 +708,35 @@ if __name__ == '__main__':
             
             # Avoid Obstacle
             if ar_ID is None and cluster_distance < 0.3:
-                print("OBSTACLE AVOIDANCE MODE ON!!! __0617")
+                # print("OBSTACLE AVOIDANCE MODE ON!!! __0617")
                 midpoint += closest_cluster_center[0] * 300
                 
         # Tunnel Mission
         else:
+            # # cam_midpoint, _ = cam_drive.find_midpoint()
+            # # side1, side2 = lidar_drive.get_side_distance()
+            # if side1 < 0.35 and side2 < 0.35:
+            #     midpoint = lidar_drive.find_midpoint()
+            #     drive_type = "TUNNEL DRIVING"
+            #     print("TUNNEL DRIVING!!! __0617")
+            # # Finish tunnel
+            # else : 
+            #     drive_mode = "CAM"
+            #     print("ESCAPE TUNNEL!!! __0617")
+
             cam_midpoint, _ = cam_drive.find_midpoint()
-            if cam_midpoint == 0:
-                midpoint = lidar_drive.find_midpoint()
-                drive_type = "TUNNEL DRIVING"
-                print("TUNNEL DRIVING!!! __0617")
+            
+            midpoint = lidar_drive.find_midpoint()
+            drive_type = "TUNNEL DRIVING"
+            print("TUNNEL DRIVING!!! __0617")
             # Finish tunnel
-            else : 
+            # print(cam_midpoint)
+            _, right_side = lidar_drive.get_side_distance()
+            if right_side > 0.8 : 
+                stack += 1
+            else :
+                stack = 0
+            if stack > 10:
                 drive_mode = "CAM"
                 print("ESCAPE TUNNEL!!! __0617")
                               
