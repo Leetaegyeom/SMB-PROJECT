@@ -511,9 +511,9 @@ class LIDAR_DRIVING:
         distance = np.linalg.norm(center)
         if distance < 0.1:
             if ref_angle < 0:
-                ref_angle += 20
+                ref_angle *= -1
             elif ref_angle > 0:
-                ref_angle -= 20
+                ref_angle *= -1
 
         return ref_angle
 
