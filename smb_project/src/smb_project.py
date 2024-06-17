@@ -52,7 +52,6 @@ class CONTROL:
         self.kd = 0
         
     def pid(self, input_data, type="LINE TRACKING"):
-        # print(input_data)
         if type == "LINE TRACKING":
             error = WIDTH // 2 - input_data
             self.kp = P_GAIN_CAM
@@ -60,7 +59,7 @@ class CONTROL:
             self.kd = D_GAIN_CAM
 
         elif type == "AVOID OBSTACLE":
-            error = DELTA_50 - input_data
+            error = input_data
             self.kp = P_GAIN_OBS
             self.ki = I_GAIN_OBS
             self.kd = D_GAIN_OBS
@@ -514,6 +513,10 @@ class LIDAR_DRIVING:
                 ref_angle *= -1
             elif ref_angle > 0:
                 ref_angle *= -1
+        
+        if distance > 0.3:
+            print("before tunnel -> zero angle")
+            ref_angle = 50
 
         return ref_angle
 
@@ -653,7 +656,7 @@ if __name__ == '__main__':
     ar_tag = AR_TAG()
     traffic_light = TRAFFIC_LIGHT()
 
-    speed = 20
+    speed = 0
     can_we_go = 1
     is_done = False
     crosswalk_flag = False
@@ -666,6 +669,8 @@ if __name__ == '__main__':
     prev_ar_ID = 0
     prev_crw_flag = 0
     prev_cluster_distance = float("inf")
+
+    drive_type = "LINE TRACKING"
                 
     while not rospy.is_shutdown():
         # AR Detect
@@ -677,7 +682,7 @@ if __name__ == '__main__':
         
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
             if tunnel_start_time is None:
-                print("Tunnel Start!!!")
+                print("Tunnel Detect!!!")
                 tunnel_start_time = time.time()
         
         if tunnel_start_time:
@@ -692,18 +697,21 @@ if __name__ == '__main__':
             
             # Avoid Obstacle
             if ar_ID is None and cluster_distance < 0.3:
+                print("obstacle")
                 midpoint += closest_cluster_center[0] * 300
                 
         # Tunnel Mission
         else:
             midpoint = lidar_drive.find_midpoint()
             print("TUNNEL DRIVING ON")
+            drive_type = "TUNNEL DRIVING"
             if closest_cluster_center is None:
                 pass_stack += 1
             
             # Finish Tunnel
             if pass_stack > TUNNEL_OUT_THRESHOLD:
                 drive_mode = "CAM"
+                drive_type = "LINE TRACKING"
                               
         # Crosswalk
         if crosswalk_flag and is_single_color:
@@ -758,7 +766,7 @@ if __name__ == '__main__':
             print("Race is done.")
             break
             
-        angle = xycar.pid(midpoint)
+        angle = xycar.pid(midpoint, drive_type)
         xycar.drive(angle, speed * can_we_go)
         
         # # Need to delete (For Debug)
