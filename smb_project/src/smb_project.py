@@ -430,7 +430,6 @@ class LIDAR_DRIVING:
     def __init__(self):
         rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
         
-        # self.wall_centers_pub = rospy.Publisher('/wall_centers', Marker, queue_size=10)
         self.lidar_xy_points_pub = rospy.Publisher('/lidar_xy_points', Marker, queue_size=10)
         self.clustered_points_pub = rospy.Publisher('/clustered_points', Marker, queue_size=10)
         self.vector_pub = rospy.Publisher('/min_max_vector', Marker, queue_size=10)
@@ -662,6 +661,7 @@ if __name__ == '__main__':
     crosswalk_flag = False
     is_single_color = True
     tunnel_start_time = None
+    tunnel_detect_flag = None
     drive_mode = "CAM"      # Camera or Lidar mode
     
     # Need to delete (For Debug)
@@ -669,49 +669,48 @@ if __name__ == '__main__':
     prev_ar_ID = 0
     prev_crw_flag = 0
     prev_cluster_distance = float("inf")
-
-    drive_type = "LINE TRACKING"
                 
     while not rospy.is_shutdown():
         # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
-        # print(ar_ID, ar_distance)
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
         
+        drive_type = "LINE TRACKING"
+
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
             if tunnel_start_time is None:
-                print("Tunnel Detect!!!")
-                tunnel_start_time = time.time()
+                print("TUNNEL DETECT!!! __0617")
+                tunnel_detect_flag = True
         
-        if tunnel_start_time:
-            if time.time() - tunnel_start_time > 2.0:    
+        if tunnel_detect_flag:
+            if cluster_distance < 0.1:
+                print("TUNNEL DRIVE MODE ON!!! __0617")    
                 pass_stack = 0
                 drive_mode = "LIDAR"
-                tunnel_start_time = None
-
+                tunnel_detect_flag = None
+                
         # Find Midpoint to follow & Detect Crosswalk
         if drive_mode == "CAM":
             midpoint, crosswalk_flag = cam_drive.find_midpoint()
             
             # Avoid Obstacle
             if ar_ID is None and cluster_distance < 0.3:
-                print("obstacle")
+                print("OBSTACLE AVOIDANCE MODE ON!!! __0617")
                 midpoint += closest_cluster_center[0] * 300
                 
         # Tunnel Mission
         else:
-            midpoint = lidar_drive.find_midpoint()
-            print("TUNNEL DRIVING ON")
-            drive_type = "TUNNEL DRIVING"
-            if closest_cluster_center is None:
-                pass_stack += 1
-            
-            # Finish Tunnel
-            if pass_stack > TUNNEL_OUT_THRESHOLD:
+            cam_midpoint, _ = cam_drive.find_midpoint()
+            if cam_midpoint == 0:
+                midpoint = lidar_drive.find_midpoint()
+                drive_type = "TUNNEL DRIVING"
+                print("TUNNEL DRIVING!!! __0617")
+            # Finish tunnel
+            else : 
                 drive_mode = "CAM"
-                drive_type = "LINE TRACKING"
+                print("ESCAPE TUNNEL!!! __0617")
                               
         # Crosswalk
         if crosswalk_flag and is_single_color:
