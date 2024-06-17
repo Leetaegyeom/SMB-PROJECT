@@ -124,8 +124,10 @@ class IMG_PROCESSING:
         # Canny Edge Detection
         edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
         roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
-        display_img = self.image.copy()
+        display_img = img
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
+
+        cv2.rectangle(line_img, (5, ROI_ROW+5), (WIDTH-5, HEIGHT-ROI_OFFSET-5), (0,255,0), 2)
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
         if all_lines is None:
@@ -143,14 +145,17 @@ class IMG_PROCESSING:
                 left_x.append(x2)
                 left_y.append(y1)
                 left_y.append(y2)
-                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.line(line_img, (x1, y1), (x2, y2), (0, 0, 255), 2)
                 
             elif slope > 0.2 and x1 > WIDTH / 2:
                 right_x.append(x1)
                 right_x.append(x2)
                 right_y.append(y1)
                 right_y.append(y2)
-                # cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        
+        display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img 
+        cv2.imshow('camera', display_img)
 
         # Define ROI
         roi_gray = gray[ROI_ROW:HEIGHT, 60:WIDTH-60]
@@ -167,8 +172,6 @@ class IMG_PROCESSING:
 
         # Determine if it's a crosswalk based on the white pixel ratio
         is_crosswalk = white_pixel_ratio > 0.3
-        # display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img 
-        #cv2.imshow('find_line', display_img)
 
         return left_x, right_x, left_y, right_y, is_crosswalk
 
@@ -338,7 +341,8 @@ class CAM_DRIVING:
         right_of_left = []
         left_of_right = []
         right_of_right = []
-        left_x, right_x, _, _, is_crosswalk = self.img_proc.find_line()
+        direction_flag = 0
+        left_x, right_x, _, _, _ = self.img_proc.find_line()
 
         for i in range(0, len(left_x), 2):
             if left_x[i] < WIDTH / 4 and left_x[i+1] < WIDTH / 4:
@@ -357,27 +361,37 @@ class CAM_DRIVING:
                 right_of_right.append(right_x[i+1])
 
         if left_of_left and right_of_right:
+            if direction_flag == 1:
+                direction_flag = 2
             self.x_left = sum(left_of_left) / len(left_of_left)
             self.x_right = sum(right_of_right) / len(right_of_right)
             self.x_midpoint = (self.x_left + self.x_right) // 2
 
         elif left_of_left:
+            if direction_flag == 1:
+                direction_flag = 2
             self.x_left = sum(left_of_left) / len(left_of_left)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
 
         elif right_of_right:
+            if direction_flag == 1:
+                direction_flag = 2
             self.x_right = sum(right_of_right) / len(right_of_right)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
 
         elif right_of_left and left_of_right:
+            direction_flag = 1
             self.x_right = sum(right_of_left) / len(right_of_left)
-            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)            
+            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)     
+
+        else:
+            self.x_midpoint = self.prev_x_midpoint       
 
         self.prev_x_left = self.x_left
         self.prev_x_right = self.x_right
         self.prev_x_midpoint = self.x_midpoint
 
-        return self.x_midpoint, is_crosswalk
+        return self.x_midpoint, direction_flag
     
     def find_midpoint_crosswalk_right(self):
         while not self.img_proc.is_image_ready():
@@ -387,7 +401,8 @@ class CAM_DRIVING:
         right_of_left = []
         left_of_right = []
         right_of_right = []
-        left_x, right_x, _, _, is_crosswalk = self.img_proc.find_line()
+        direction_flag = 0
+        left_x, right_x, _, _, _ = self.img_proc.find_line()
 
         for i in range(0, len(left_x), 2):
             if left_x[i] < WIDTH / 4 and left_x[i+1] < WIDTH / 4:
@@ -406,27 +421,37 @@ class CAM_DRIVING:
                 right_of_right.append(right_x[i+1])
 
         if left_of_left and right_of_right:
+            if direction_flag == 1:
+                direction_flag = 2
             self.x_left = sum(left_of_left) / len(left_of_left)
             self.x_right = sum(right_of_right) / len(right_of_right)
             self.x_midpoint = (self.x_left + self.x_right) // 2
 
         elif right_of_right:
+            if direction_flag == 1:
+                direction_flag = 2
             self.x_right = sum(right_of_right) / len(right_of_right)
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)        
 
         elif left_of_left:
+            if direction_flag == 1:
+                direction_flag = 2
             self.x_left = sum(left_of_left) / len(left_of_left)
             self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
 
         elif right_of_left and left_of_right:
-            self.x_right = sum(right_of_left) / len(right_of_left)
-            self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)            
+            direction_flag = 1
+            self.x_left = sum(left_of_right) / len(left_of_right)
+            self.x_midpoint = self.x_left + (self.prev_x_midpoint - self.prev_x_left)
+        
+        else:
+            self.x_midpoint = self.prev_x_midpoint          
 
         self.prev_x_left = self.x_left
         self.prev_x_right = self.x_right
         self.prev_x_midpoint = self.x_midpoint
 
-        return self.x_midpoint, is_crosswalk
+        return self.x_midpoint, direction_flag
 
 
 # LINE TRACKING BY USING LIDAR
@@ -785,12 +810,12 @@ if __name__ == '__main__':
             # print("Let's Go", direction)
 
             if direction == "left":
-                midpoint, crosswalk_flag = cam_drive.find_midpoint_crosswalk_left()
+                midpoint, direction_flag = cam_drive.find_midpoint_crosswalk_left()
 
             elif direction == "right":
-                midpoint, crosswalk_flag = cam_drive.find_midpoint_crosswalk_right()
+                midpoint, direction_flag = cam_drive.find_midpoint_crosswalk_right()
 
-            if crosswalk_flag == True:
+            if direction_flag == 2:
                 prev_ar_ID = 0
                 break
 
