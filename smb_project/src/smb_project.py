@@ -697,7 +697,7 @@ if __name__ == '__main__':
         # Tunnel Mission
         else:
             midpoint = lidar_drive.find_midpoint()
-
+            print("TUNNEL DRIVING ON")
             if closest_cluster_center is None:
                 pass_stack += 1
             
