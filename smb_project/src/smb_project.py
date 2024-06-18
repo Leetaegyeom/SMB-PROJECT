@@ -36,7 +36,7 @@ I_GAIN_OBS = 0.0
 D_GAIN_OBS = 0.0
 
 SPEED = 5
-DELTA_50 = 55
+DELTA_50 = 50 # if want left offset, set DELTA_50 as 55 
 TUNNEL_OUT_THRESHOLD = 10
 
 # SEND CONTROL MESSAGE TO XYCAR
@@ -706,14 +706,14 @@ if __name__ == '__main__':
     prev_crw_flag = 0
     prev_cluster_distance = float("inf")
     stack = 0
-    stack_right = 0
+
     while not rospy.is_shutdown():
+       
        # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
-        # print(cluster_distance)
         drive_type = "LINE TRACKING"
 
         if ar_ID and ar_ID == 6 and drive_mode == "CAM":
@@ -723,14 +723,9 @@ if __name__ == '__main__':
 
         left, right = lidar_drive.get_side_distance()
 
-        if right < 0.3:
-            stack_right += 1
-        else:
-            stack_right = 0
-
         if tunnel_detect_flag:
             side1, side2 = lidar_drive.get_side_distance()
-            if cluster_distance < 0.3 and right > 0.5:
+            if cluster_distance < 0.3:
                 print("TUNNEL DRIVE MODE ON!!! __0617")    
                 pass_stack = 0
                 drive_mode = "LIDAR"
@@ -747,25 +742,15 @@ if __name__ == '__main__':
                 
         # Tunnel Mission
         else:
-            # # cam_midpoint, _ = cam_drive.find_midpoint()
-            # # side1, side2 = lidar_drive.get_side_distance()
-            # if side1 < 0.35 and side2 < 0.35:
-            #     midpoint = lidar_drive.find_midpoint()
-            #     drive_type = "TUNNEL DRIVING"
-            #     print("TUNNEL DRIVING!!! __0617")
-            # # Finish tunnel
-            # else : 
-            #     drive_mode = "CAM"
-            #     print("ESCAPE TUNNEL!!! __0617")
-
             cam_midpoint, _ = cam_drive.find_midpoint()
             
             midpoint = lidar_drive.find_midpoint()
             drive_type = "TUNNEL DRIVING"
             print("TUNNEL DRIVING!!! __0617")
+            
             # Finish tunnel
-            # print(cam_midpoint)
             _, right_side = lidar_drive.get_side_distance()
+
             if right_side > 0.8 : 
                 stack += 1
             else :
