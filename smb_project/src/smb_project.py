@@ -153,7 +153,10 @@ class IMG_PROCESSING:
                 right_y.append(y2)
                 cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
         
+        # cv2.line(line_img, (0, 320 + 120 - 25), (WIDTH, 320 + 120 - 25), (0, 255, 255), 2)
+
         display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img 
+        cv2.line(display_img, (0, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (WIDTH, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (0, 255, 255), 2)
         cv2.imshow('camera', display_img)
         cv2.waitKey(1)
 
@@ -206,7 +209,7 @@ class AR_TAG:
                 min_distance = distance
                 min_ID = self.arData["ID"][idx]
                 
-        print(min_ID, min_distance)
+        # print(min_ID, min_distance)
                 
         return min_ID, min_distance
 
@@ -349,21 +352,28 @@ class CAM_DRIVING:
         left_x, right_x, left_y, right_y, _ = self.img_proc.find_line()
 
         for x1, x2, y1, y2 in zip(left_x[::2], left_x[1::2], left_y[::2], left_y[1::2]):
+            y1 += ROI_ROW
+            y2 += ROI_ROW
             if x1 < float(WIDTH) / 4.0 and x2 < float(WIDTH) / 4.0:
-                if y1 > float(ROI_ROW + HEIGHT) / 2.0 and y2 > float(ROI_ROW + HEIGHT) / 2.0:
+                # if y1 
+                if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
+                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.left_left_flag = True
             elif x1 > float(WIDTH) / 4.0 and x2 > float(WIDTH) / 4.0:
-                if y1 > float(ROI_ROW + HEIGHT) / 2.0 and y2 > float(ROI_ROW + HEIGHT) / 2.0:
+                if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
+                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.left_right_flag = True
             else:
                 continue
         
         for x1, x2, y1, y2 in zip(right_x[::2], right_x[1::2], right_y[::2], right_y[1::2]):
             if x1 < float(WIDTH) * (3.0/4.0) and x2 < float(WIDTH) * (3.0/4.0):
-                if y1 > float(ROI_ROW + HEIGHT) / 2.0 and y2 > float(ROI_ROW + HEIGHT) / 2.0:
+                if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
+                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.right_left_flag = True
             elif x1 > float(WIDTH) * (3.0/4.0) and x2 > float(WIDTH) * (3.0/4.0):
-                if y1 > float(ROI_ROW + HEIGHT) / 2.0 and y2 > float(ROI_ROW + HEIGHT) / 2.0:
+                if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
+                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.right_right_flag = True
             else:
                 continue
@@ -730,7 +740,7 @@ if __name__ == '__main__':
     traffic_light = TRAFFIC_LIGHT()
 
     angle = 0
-    speed = 0
+    speed = 3
     can_we_go = 1
     is_done = False
     crosswalk_flag = False
@@ -835,7 +845,8 @@ if __name__ == '__main__':
 
         while prev_ar_ID == 2:
             can_we_go, direction = traffic_light.traffic_crossroad()
-            # print("Let's Go", direction)
+            # print("LAST AR!!!!!!!!!!!!!!!")
+            # print("Let's Go", dt(irection)
             # if direction == "left":
             #     midpoint, direction_flag = cam_drive.find_midpoint_crosswalk_left()
 
@@ -853,22 +864,24 @@ if __name__ == '__main__':
             if start_time_2 == None:
                 is_crossroad = cam_drive.check_crossroad()
             midpoint, _ = cam_drive.find_midpoint()
-            angle = xycar.pid(midpoint)
-            xycar.drive(angle, speed) 
+            
             if is_crossroad:
                 print("Let's Go", direction)
                 start_time_2 = time.time()
-                while time.time() - start_time_2 < 0.5:
+                while time.time() - start_time_2 < 1:
+                    print("sex")
                     
                     if direction == 'left':
+                        print("sex left")
                         angle = -50
                     elif direction == 'right':
+                        print("sex right")
                         angle = 50
-            
-                    angle = xycar.pid(midpoint)
-                    xycar.drive(angle, speed) 
+                    xycar.drive(angle, speed)
                 is_crossroad = False
-                break    
+                prev_ar_ID = 0
+            angle = xycar.pid(midpoint)
+            xycar.drive(angle, speed) 
 
         # while prev_ar_ID == 2:
         #     ar_ID, ar_distance = ar_tag.AR_detect()
