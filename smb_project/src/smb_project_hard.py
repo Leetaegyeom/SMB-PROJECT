@@ -18,10 +18,10 @@ from geometry_msgs.msg import Point, Vector3
 rospy.init_node('xycar')
 
 CONTROL_TIME = 0.01
-RATE = rospy.Rate(1 / CONTROL_TIME)
+RATE = rospy.Rate(10)
 WIDTH, HEIGHT = 640, 480
-ROI_ROW = 240
-ROI_OFFSET = 50
+ROI_ROW = 280
+ROI_OFFSET = 80
 
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
@@ -35,7 +35,7 @@ P_GAIN_OBS = 1.0
 I_GAIN_OBS = 0.0
 D_GAIN_OBS = 0.0
 
-DELTA_50 = 50 # if want left offset, set DELTA_50 as 55 
+DELTA_50 = 55   # if want left offset, set DELTA_50 as 55
 TUNNEL_OUT_THRESHOLD = 10
 
 # SEND CONTROL MESSAGE TO XYCAR
@@ -115,20 +115,24 @@ class IMG_PROCESSING:
 
         # Histogram Equalize
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        hist_equalized = cv2.equalizeHist(gray)
+        # hist_equalized = cv2.equalizeHist(gray)
         
         # GaussianBlur
-        blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
-        
+        # blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
+        blur_gray = cv2.GaussianBlur(gray, (5, 5), 0)
         # Canny Edge Detection
-        edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
+        edge_img = cv2.Canny(np.uint8(blur_gray), 30, 60)
+        # edge_img = cv2.Canny(np.uint8(blur_gray), 60, 80) # FOR NIGHT
+        # edge_img = cv2.Canny(np.uint8(blur_gray), 150, 300)
         roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
         display_img = img
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
 
         cv2.rectangle(line_img, (5, ROI_ROW+5), (WIDTH-5, HEIGHT-ROI_OFFSET-5), (0,255,0), 2)
 
-        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
+        all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20)
+        # all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 30, 20) # FOR NIGHT
+        # all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 70, 20) # zo
         if all_lines is None:
             return [], [], [], [], 0
 
@@ -152,11 +156,12 @@ class IMG_PROCESSING:
                 right_y.append(y1)
                 right_y.append(y2)
                 cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        
-        # cv2.line(line_img, (0, 320 + 120 - 25), (WIDTH, 320 + 120 - 25), (0, 255, 255), 2)
 
         display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img 
-        cv2.line(display_img, (0, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (WIDTH, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (0, 255, 255), 2)
+        #cv2.imshow('gray', gray)
+        #cv2.imshow('hist', hist_equalized)
+        #cv2.imshow('blur', blur_gray)
+        cv2.imshow('canny', edge_img)
         cv2.imshow('camera', display_img)
         cv2.waitKey(1)
 
@@ -173,7 +178,7 @@ class IMG_PROCESSING:
         total_pixels = binary_img.shape[0] * binary_img.shape[1]
         white_pixel_ratio = float(white_pixel_count) / float(total_pixels)
 
-        threshold = 0.4 if not direction else 0.2
+        threshold = 0.35 if not direction else 0.2
 
         # Determine if it's a crosswalk based on the white pixel ratio
         is_crosswalk = white_pixel_ratio > threshold
@@ -200,8 +205,8 @@ class AR_TAG:
 
     def AR_detect(self):
         min_ID = None
-        min_distance = float('inf')
-        # min_distance = 1.0
+        # min_distance = float('inf')
+        min_distance = 1.0
 
         if len(self.arData["ID"]) == 0:
             return min_ID, float("inf")
@@ -270,17 +275,10 @@ class TRAFFIC_LIGHT:
             print("There is no Traffic Light!!!")
             return direction
 
-        if self.left_color == 'G' or self.left_color == 'Y':
-            if self.time_count >= 7:
-                direction = "left"
-            else:
-                direction = "right"
-                
-        if self.right_color == 'G' or self.right_color == 'Y':
-            if self.time_count >= 7:
-                direction = "right"
-            else:
-                direction = "left"
+        if self.left_color in ['G', 'Y'] and self.time_count >= 6:
+            direction = "left"
+        else:
+            direction = "right"
                 
         return direction
     
@@ -290,7 +288,10 @@ class TRAFFIC_LIGHT:
         if tmp_color == 'G':
             return 1
         else:
-            return 0
+            if tmp_color == 'Y' and self.time_count >= 3:
+                return 1
+            else:
+                return 0
         
     def traffic_crossroad(self):
         direction = None
@@ -469,10 +470,12 @@ class LIDAR_DRIVING:
             RATE.sleep()
         
         points = self.preprocess_lidar_data()
+        self.publish_lidar_points(points)
         if len(points) <= 1:
             return None, float("inf")
 
         _, _, _, _, closest_cluster = self.cluster(points)
+        self.publish_clustered_points(closest_cluster)
         closest_cluster_center = np.mean(closest_cluster, axis=0) if closest_cluster is not None else None
         
         if closest_cluster_center is not None:
@@ -600,7 +603,6 @@ if __name__ == '__main__':
     traffic_light = TRAFFIC_LIGHT()
 
     angle = 0
-    speed = 5
     can_we_go = 1
     
     stack = 0
@@ -613,6 +615,7 @@ if __name__ == '__main__':
     # Need to delete (For Debug)
     prev_mode = drive_mode
     prev_crw_flag = 0
+    prev_ar_ID = None
     prev_cluster_distance = float("inf")
     is_crossroad = False
     start_time_2 = None
@@ -620,6 +623,7 @@ if __name__ == '__main__':
     direction = None
 
     while not rospy.is_shutdown():
+        speed = 5
        
        # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
@@ -635,30 +639,37 @@ if __name__ == '__main__':
 
         if tunnel_detect_flag:
             _, right = lidar_drive.get_side_distance()
-            if right < 0.6:
-                right_stack +=1
+            speed = 3
+            
+            if right < 0.5:
+                right_stack += 1
             else:
                 right = 0
-            if cluster_distance < 0.3 and right_stack > 10:
+            if cluster_distance < 0.3 and right_stack > 5:
                 print("TUNNEL DRIVE MODE ON!!! __0617")
+                speed = 5
                 drive_mode = "LIDAR"
-                tunnel_detect_flag = None
                 
         # Find Midpoint to follow & Detect Crosswalk
         if drive_mode == "CAM":
             midpoint, crosswalk_flag = cam_drive.find_midpoint(direction)
             
             # Avoid Obstacle
-            if ar_ID is None and cluster_distance < 0.35:                                    
-                midpoint += closest_cluster_center[0] * 1000
+            
+            if ar_ID is None and cluster_distance < 0.35 and not tunnel_detect_flag:
+                # print("Avoid!!!")
+                speed = 3
+                cluster_x = closest_cluster_center[0]
+                print("prev", midpoint)
+                diff = 0.3 - cluster_x if cluster_x > 0 else -0.3 - cluster_x
+                midpoint += diff * 1000
+                print("after", midpoint)
                 
         # Tunnel Mission
-        else:
-            cam_midpoint, _ = cam_drive.find_midpoint()
-            
+        else:           
             midpoint = lidar_drive.find_midpoint()
             drive_type = "TUNNEL DRIVING"
-            print("TUNNEL DRIVING!!! __0617")
+            # print("TUNNEL DRIVING!!! __0617")
             
             # Finish tunnel
             _, right_side = lidar_drive.get_side_distance()
@@ -668,6 +679,7 @@ if __name__ == '__main__':
             else :
                 stack = 0
             if stack > 10:
+                tunnel_detect_flag = False
                 drive_mode = "CAM"
                 print("ESCAPE TUNNEL!!! __0617")
 
@@ -692,17 +704,18 @@ if __name__ == '__main__':
                     xycar.drive(angle, speed * can_we_go)
                     
                     RATE.sleep()
-        
+
         # Crossroads & Stop Mission
         if ar_ID:
-            if ar_ID == 2:
-                for _ in range(30):
+            if ar_ID == 2 and ar_distance < 0.6:                    
+                for _ in range(35):
                     xycar.drive(0, speed)
                     RATE.sleep()
                     
                 direction = traffic_light.traffic_crossroad_direction()
+                print("Direction :", direction)
                 
-                for _ in range(15):
+                for _ in range(14):
                     if direction == "left":
                         xycar.drive(-30, speed)
                     else:
@@ -711,7 +724,7 @@ if __name__ == '__main__':
 
             elif ar_ID == 4:
                 while True:
-                    midpoint, _ = cam_drive.find_midpoint()
+                    midpoint, _ = cam_drive.find_midpoint(direction)
                     _, ar_distance = ar_tag.AR_detect()
                 
                     if ar_distance < 0.6:
@@ -726,7 +739,10 @@ if __name__ == '__main__':
         if is_done:
             print("Race is done.")
             break
-            
+        
+        # RemovE!!!!
+        # can_we_go = 0
+
         angle = xycar.pid(midpoint, drive_type)
         xycar.drive(angle, speed * can_we_go)
         

@@ -121,7 +121,8 @@ class IMG_PROCESSING:
         blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
         
         # Canny Edge Detection
-        edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
+        # edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
+        edge_img = cv2.Canny(np.uint8(blur_gray), 50, 80) # FOR NIGHT
         roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
         display_img = img
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
