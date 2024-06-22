@@ -3,7 +3,8 @@
 
 # Import necessary libraries
 import numpy as np
-import cv2, math
+import cv2
+import math
 import rospy
 from cv_bridge import CvBridge
 from sklearn.cluster import DBSCAN
