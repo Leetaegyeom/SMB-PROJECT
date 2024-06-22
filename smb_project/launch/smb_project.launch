@@ -31,7 +31,6 @@
         <remap from="camera_info" to="/usb_cam/camera_info" />
     </node>
 
-    <node name="smb_project" pkg="smb_project" type="smb_project_hard.py" output="screen" />
-    <!-- <node name="smb_project" pkg="smb_project" type="smb_visualize.py" output="screen" /> -->
-
+    <node name="smb_project" pkg="smb_project" type="smb_project.py" output="screen" />
+    
 </launch>

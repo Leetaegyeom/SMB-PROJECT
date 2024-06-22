@@ -17,7 +17,7 @@ from geometry_msgs.msg import Point, Vector3
 
 rospy.init_node('xycar')
 
-CONTROL_TIME = 0.01
+CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
 ROI_ROW = 240
@@ -31,12 +31,9 @@ P_GAIN_TUNNEL = 7.0
 I_GAIN_TUNNEL = 0.0
 D_GAIN_TUNNEL = 7.0
 
-P_GAIN_OBS = 1.0
-I_GAIN_OBS = 0.0
-D_GAIN_OBS = 0.0
-
 DELTA_50 = 50 # if want left offset, set DELTA_50 as 55 
 TUNNEL_OUT_THRESHOLD = 10
+
 
 # SEND CONTROL MESSAGE TO XYCAR
 class CONTROL:
@@ -57,12 +54,6 @@ class CONTROL:
             self.kp = P_GAIN_CAM
             self.ki = I_GAIN_CAM
             self.kd = D_GAIN_CAM
-
-        elif type == "AVOID OBSTACLE":
-            error = input_data
-            self.kp = P_GAIN_OBS
-            self.ki = I_GAIN_OBS
-            self.kd = D_GAIN_OBS
 
         elif type == "TUNNEL DRIVING":
             error = DELTA_50 - input_data
@@ -100,7 +91,6 @@ class IMG_PROCESSING:
         self.image = np.empty(shape=[0])
         self.bridge = CvBridge()
         self.img_ready = False
-        self.CAM_FPS = 30
         
     def img_callback(self, data):
         self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -121,12 +111,12 @@ class IMG_PROCESSING:
         blur_gray = cv2.GaussianBlur(hist_equalized, (5, 5), 0)
         
         # Canny Edge Detection
-        # edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
-        edge_img = cv2.Canny(np.uint8(blur_gray), 50, 80) # FOR NIGHT
+        edge_img = cv2.Canny(np.uint8(blur_gray), 150, 500)
         roi_edge_img = edge_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
+        
+        # For Visualize
         display_img = img
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
-
         cv2.rectangle(line_img, (5, ROI_ROW+5), (WIDTH-5, HEIGHT-ROI_OFFSET-5), (0,255,0), 2)
 
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
@@ -153,22 +143,17 @@ class IMG_PROCESSING:
                 right_y.append(y1)
                 right_y.append(y2)
                 cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        
-        # cv2.line(line_img, (0, 320 + 120 - 25), (WIDTH, 320 + 120 - 25), (0, 255, 255), 2)
 
-        display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img 
+        # Visualize
+        display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img
         cv2.line(display_img, (0, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (WIDTH, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (0, 255, 255), 2)
         cv2.imshow('camera', display_img)
         cv2.waitKey(1)
 
-        # Define ROI
+        # For Detect Crosswalk
         roi_gray = gray[380:HEIGHT, 60:WIDTH-60]
-
         _, binary_img = cv2.threshold(roi_gray, 100, 255, cv2.THRESH_BINARY)
         
-        # cv2.imshow('bin', binary_img)
-        # cv2.waitKey(1)
-
         # Calculate the white pixel ratio
         white_pixel_count = cv2.countNonZero(binary_img)
         total_pixels = binary_img.shape[0] * binary_img.shape[1]
@@ -200,7 +185,6 @@ class AR_TAG:
     def AR_detect(self):
         min_ID = None
         min_distance = float('inf')
-        # min_distance = 1.0
 
         if len(self.arData["ID"]) == 0:
             return min_ID, float("inf")
@@ -209,8 +193,6 @@ class AR_TAG:
             if distance < min_distance:
                 min_distance = distance
                 min_ID = self.arData["ID"][idx]
-                
-        # print(min_ID, min_distance)
                 
         return min_ID, min_distance
 
@@ -311,9 +293,6 @@ class CAM_DRIVING:
         self.right_left_flag = False
         self.right_right_flag = False
         self.total_flag = False
-        
-        # Remove
-        self.start_time = time.time()
 
     def find_midpoint(self):
         while not self.img_proc.is_image_ready():
@@ -335,10 +314,7 @@ class CAM_DRIVING:
             self.x_midpoint = self.x_right + (self.prev_x_midpoint - self.prev_x_right)
 
         else:
-            if 20 > time.time() - self.start_time > 12:
-                self.x_midpoint = 0
-            else:
-                self.x_midpoint = self.prev_x_midpoint
+            self.x_midpoint = self.prev_x_midpoint
 
         self.prev_x_left = self.x_left
         self.prev_x_right = self.x_right
@@ -356,13 +332,10 @@ class CAM_DRIVING:
             y1 += ROI_ROW
             y2 += ROI_ROW
             if x1 < float(WIDTH) / 4.0 and x2 < float(WIDTH) / 4.0:
-                # if y1 
                 if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
-                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.left_left_flag = True
             elif x1 > float(WIDTH) / 4.0 and x2 > float(WIDTH) / 4.0:
                 if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
-                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.left_right_flag = True
             else:
                 continue
@@ -370,18 +343,18 @@ class CAM_DRIVING:
         for x1, x2, y1, y2 in zip(right_x[::2], right_x[1::2], right_y[::2], right_y[1::2]):
             if x1 < float(WIDTH) * (3.0/4.0) and x2 < float(WIDTH) * (3.0/4.0):
                 if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
-                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.right_left_flag = True
             elif x1 > float(WIDTH) * (3.0/4.0) and x2 > float(WIDTH) * (3.0/4.0):
                 if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
-                # if float(ROI_ROW) > y1 > float(HEIGHT - ROI_OFFSET) or float(ROI_ROW) > y2 > float(HEIGHT - ROI_OFFSET):
                     self.right_right_flag = True
             else:
                 continue
-        # print(self.left_left_flag, self.left_right_flag, self.right_left_flag, self.right_right_flag)
+            
         if self.left_left_flag and self.left_right_flag and self.right_left_flag and self.right_right_flag:
             self.total_flag = True
-        self.left_left_flag, self.left_right_flag, self.right_left_flag, self.right_right_flag = False, False, False, False
+            
+        self.left_left_flag = self.left_right_flag = self.right_left_flag = self.right_right_flag = False
+        
         return self.total_flag
 
     def find_midpoint_crosswalk_left(self):
@@ -397,7 +370,7 @@ class CAM_DRIVING:
 
         for i in range(0, len(left_x), 2):
             if left_x[i] < float(WIDTH) / 4.0 and left_x[i+1] < float(WIDTH) / 4.0:
-                # left_of_left.append(left_x[i])
+                left_of_left.append(left_x[i])
                 left_of_left.append(left_x[i+1])
             elif left_x[i] > float(WIDTH) / 4.0 and left_x[i+1] > float(WIDTH) / 4.0:
                 right_of_left.append(left_x[i])
@@ -516,7 +489,7 @@ class LIDAR_DRIVING:
         self.min_max_point_pub = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
         self.lidar_points = None
-        self.THETA2INPUT = 50.0 / 90.0 # theta : -90 ~ 90, input : -50 ~ 50
+        self.THETA2INPUT = 50.0 / 90.0  # theta : -90 ~ 90, input : -50 ~ 50
         self.LIDAR_ROI = [(0, 181), (180, 361)]
         self.lidar_ready = False
         
@@ -590,17 +563,6 @@ class LIDAR_DRIVING:
         self.publish_ref_vector(min_max_vec)
 
         ref_angle = np.degrees(np.arctan2(min_max_vec[1], min_max_vec[0])) * self.THETA2INPUT
-
-        distance = np.linalg.norm(center)
-        # if distance < 0.1:
-        #     if ref_angle < 0:
-        #         ref_angle *= -1
-        #     elif ref_angle > 0:
-        #         ref_angle *= -1
-        
-        # if distance > 0.3:
-        #     print("before tunnel -> zero angle")
-        #     ref_angle = 50
 
         return ref_angle
 
@@ -741,23 +703,18 @@ if __name__ == '__main__':
     traffic_light = TRAFFIC_LIGHT()
 
     angle = 0
-    speed = 3
+    speed = 5
     can_we_go = 1
+    stack = 0
+    right_stack = 0
+    start_time_2 = None
+    
     is_done = False
     crosswalk_flag = False
     is_single_color = True
     tunnel_detect_flag = False
     drive_mode = "CAM"      # Camera or Lidar mode
-    
-    # Need to delete (For Debug)
-    prev_mode = drive_mode
-    prev_ar_ID = 0
-    prev_crw_flag = 0
-    prev_cluster_distance = float("inf")
-    stack = 0
-    right_stack = 0
     is_crossroad = False
-    start_time_2 = None
 
     while not rospy.is_shutdown():
        
@@ -909,18 +866,3 @@ if __name__ == '__main__':
         angle = xycar.pid(midpoint, drive_type)
         xycar.drive(angle, speed * can_we_go)
         
-        # # Need to delete (For Debug)
-        # if prev_mode != drive_mode or prev_ar_ID != ar_ID or prev_crw_flag != crosswalk_flag or prev_cluster_distance != cluster_distance:
-        #     print("------------------------------")
-        #     print("Present Mode:", drive_mode)
-        #     print("Present AR ID:", ar_ID)
-        #     print("Present Crosswalk Flag:", crosswalk_flag)            
-        #     if cluster_distance == float("inf"):
-        #         print("There is no Cluster!!!")
-        #     else:
-        #         print("Present Cluster Distance:", cluster_distance)
-        
-        # prev_mode = drive_mode
-        # prev_ar_ID = ar_ID
-        # prev_crw_flag = crosswalk_flag
-        # prev_cluster_distance = cluster_distance
