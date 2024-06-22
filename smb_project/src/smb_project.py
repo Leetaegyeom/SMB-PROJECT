@@ -746,9 +746,12 @@ if __name__ == '__main__':
             midpoint, crosswalk_flag = cam_drive.find_midpoint()
             
             # Avoid Obstacle
-            if ar_ID is None and cluster_distance < 0.35:                                    
-                midpoint += closest_cluster_center[0] * 1000
-                
+            if ar_ID is None and cluster_distance < 0.35:
+                if closest_cluster_center[0] < 0:
+                    midpoint += (-0.3 - closest_cluster_center[0])*700
+                elif closest_cluster_center[0] > 0:
+                    midpoint += (0.3 - closest_cluster_center[0])*700
+
         # Tunnel Mission
         else:
             cam_midpoint, _ = cam_drive.find_midpoint()
