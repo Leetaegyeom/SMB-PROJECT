@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# Import necessary libraries
 import numpy as np
 import cv2, math
+import rospy
 from cv_bridge import CvBridge
 from sklearn.cluster import DBSCAN
 
-import rospy, rospkg, time
-
+# Import message types from ROS
 from std_msgs.msg import Int64, String
 from sensor_msgs.msg import Image, LaserScan
 from xycar_motor.msg import xycar_motor
@@ -15,14 +16,17 @@ from ar_track_alvar_msgs.msg import AlvarMarkers
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point, Vector3
 
+# Initialize the ROS node
 rospy.init_node('xycar')
 
+# Control parameters and constants
 CONTROL_TIME = 0.1
 RATE = rospy.Rate(1 / CONTROL_TIME)
 WIDTH, HEIGHT = 640, 480
 ROI_ROW = 240
 ROI_OFFSET = 50
 
+# PID control gains for camera and tunnel driving
 P_GAIN_CAM = 0.6
 I_GAIN_CAM = 0.006
 D_GAIN_CAM = 0.001
@@ -31,23 +35,28 @@ P_GAIN_TUNNEL = 7.0
 I_GAIN_TUNNEL = 0.0
 D_GAIN_TUNNEL = 7.0
 
-DELTA_50 = 50 # if want left offset, set DELTA_50 as 55 
+# Delta offset for tunnel driving
+DELTA_50 = 50   # Set to 55 for left offset
 TUNNEL_OUT_THRESHOLD = 10
 
 
-# SEND CONTROL MESSAGE TO XYCAR
+# Class to control the Xycar
 class CONTROL:
     def __init__(self):
+        # Initialize the publisher for motor control
         self.motor_pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size=1)
         
+        # Initialize PID errors
         self.i_error = 0.0
         self.prev_error = 0.0
         self.ANGLE_LIMIT = 50
         
+        # Initialize PID gains
         self.kp = 0
         self.ki = 0
         self.kd = 0
-        
+    
+    # PID control function
     def pid(self, input_data, type="LINE TRACKING"):
         if type == "LINE TRACKING":
             error = WIDTH // 2 - input_data
@@ -61,21 +70,26 @@ class CONTROL:
             self.ki = I_GAIN_TUNNEL
             self.kd = D_GAIN_TUNNEL
             
+        # Calculate derivative error
         derror = error - self.prev_error
 
+        # Proportional, integral, and derivative calculations
         p_error = self.kp * error
         self.i_error = self.i_error + self.ki * error * CONTROL_TIME
         d_error = self.kd * derror / CONTROL_TIME
 
+        # Compute the output control signal
         output = p_error + self.i_error + d_error
         self.prev_error = error
 
+        # Limit the output to the defined angle limits
         if output > self.ANGLE_LIMIT:
             output = self.ANGLE_LIMIT
         elif output < -self.ANGLE_LIMIT:
             output = -self.ANGLE_LIMIT
         return -output
 
+    # Function to send drive commands to Xycar
     def drive(self, Angle, Speed):
         motor_msg = xycar_motor()
         motor_msg.angle = Angle
@@ -86,24 +100,29 @@ class CONTROL:
 # IMAGE PROCESSING FOR CAM_DRIVING
 class IMG_PROCESSING:
     def __init__(self):
+        # Subscribe to the camera image topic
         rospy.Subscriber("/usb_cam/image_raw/", Image, self.img_callback)
         
+        # Initialize image data and CV bridge
         self.image = np.empty(shape=[0])
         self.bridge = CvBridge()
         self.img_ready = False
         
+    # Callback function to process image data
     def img_callback(self, data):
         self.image = self.bridge.imgmsg_to_cv2(data, "bgr8")
         self.img_ready = True
         
+    # Check if the image is ready
     def is_image_ready(self):
         return self.img_ready and self.image.size == (WIDTH * HEIGHT * 3)
         
+    # Find the lane line in the image
     def find_line(self):        
         img = self.image.copy()
         self.img_ready = False
 
-        # Histogram Equalize
+        # Convert to grayscale and equalize histogram
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         hist_equalized = cv2.equalizeHist(gray)
         
@@ -119,6 +138,7 @@ class IMG_PROCESSING:
         line_img = img.copy()[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH]
         cv2.rectangle(line_img, (5, ROI_ROW+5), (WIDTH-5, HEIGHT-ROI_OFFSET-5), (0,255,0), 2)
 
+        # Detect lines using Hough Transform
         all_lines = cv2.HoughLinesP(roi_edge_img, 1, math.pi/180, 50, 50, 20)
         if all_lines is None:
             return [], [], [], [], 0
@@ -126,6 +146,7 @@ class IMG_PROCESSING:
         left_x, right_x = [], []
         left_y, right_y = [], []
 
+        # Separate left and right lane lines based on slope
         for line in all_lines:
             x1, y1, x2, y2 = line[0]
             slope = (y2 - y1) / (x2 - x1 + 1e-6)
@@ -144,7 +165,7 @@ class IMG_PROCESSING:
                 right_y.append(y2)
                 cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
-        # Visualize
+        # Visualize the result
         display_img[ROI_ROW:HEIGHT-ROI_OFFSET, 0:WIDTH] = line_img
         cv2.line(display_img, (0, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (WIDTH, (HEIGHT - ROI_OFFSET + ROI_ROW)/2), (0, 255, 255), 2)
         cv2.imshow('camera', display_img)
@@ -164,6 +185,7 @@ class IMG_PROCESSING:
 
         return left_x, right_x, left_y, right_y, is_crosswalk
 
+    # Return the current image
     def get_img(self):
         return self.image.copy()
     
@@ -171,10 +193,13 @@ class IMG_PROCESSING:
 # AR TAG DETECTION & IDENTIFICATION
 class AR_TAG:
     def __init__(self):
+        # Initialize AR tag data
         self.arData = {"ID":[], "DZ":[]}
 
+        # Subscribe to AR tag pose marker topic
         rospy.Subscriber('/ar_pose_marker', AlvarMarkers, self.AR_callback)
 
+    # Callback function to process AR tag data
     def AR_callback(self, data):
         self.arData = {"ID":[], "DZ":[]}
 
@@ -182,6 +207,7 @@ class AR_TAG:
             self.arData["ID"].append(i.id)
             self.arData["DZ"].append(i.pose.pose.position.z)
 
+    # Detect the closest AR tag
     def AR_detect(self):
         min_ID = None
         min_distance = float('inf')
@@ -196,34 +222,40 @@ class AR_TAG:
                 
         return min_ID, min_distance
 
-
 # TRAFFIC LIGHT 
 class TRAFFIC_LIGHT:
     def __init__(self):
+        # Initialize traffic light color data
         self.single_color = None
         self.prev_single_color = None
         self.right_color = None
         self.left_color = None
         self.time_count = None
 
+        # Subscribe to traffic light color and time topics
         rospy.Subscriber("/Single_color", String, self.single_callback)
         rospy.Subscriber("/Right_color", String, self.right_callback)
         rospy.Subscriber("/Left_color", String, self.left_callback)
         rospy.Subscriber("/time_count", Int64, self.time_callback)
 
+    # Callback function for single color traffic light
     def single_callback(self, data):
         self.prev_single_color = self.single_color
         self.single_color = data.data
 
+    # Callback function for right turn traffic light
     def right_callback(self, data):
         self.right_color = data.data
 
+    # Callback function for left turn traffic light
     def left_callback(self, data):
         self.left_color = data.data
 
+    # Callback function for time count
     def time_callback(self, data):
         self.time_count = data.data
 
+    # Determine if the vehicle should go or stop based on single color traffic light
     def traffic_single(self):
         gostop = 0
 
@@ -246,6 +278,7 @@ class TRAFFIC_LIGHT:
 
         return gostop
     
+    # Determine the direction and if the vehicle should go or stop at a crossroad
     def traffic_crossroad(self):
         direction = None
         gostop = 1
@@ -270,7 +303,7 @@ class TRAFFIC_LIGHT:
         
 
 # LINE TRACKING BY USING CAMERA
-# USAGE : TWO LINE TRACKING(MISSION 1), ONE LINE TRACKING(MISSION 2) 
+# USAGE: TWO LINE TRACKING(MISSION 1), ONE LINE TRACKING(MISSION 2)
 class CAM_DRIVING:
     def __init__(self):
         self.img_proc = IMG_PROCESSING()
@@ -294,6 +327,7 @@ class CAM_DRIVING:
         self.right_right_flag = False
         self.total_flag = False
 
+    # Find the midpoint of the lane lines
     def find_midpoint(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
@@ -322,6 +356,7 @@ class CAM_DRIVING:
 
         return self.x_midpoint, is_crosswalk
 
+    # Check if the car is at a crossroad
     def check_crossroad(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
@@ -337,8 +372,6 @@ class CAM_DRIVING:
             elif x1 > float(WIDTH) / 4.0 and x2 > float(WIDTH) / 4.0:
                 if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
                     self.left_right_flag = True
-            else:
-                continue
         
         for x1, x2, y1, y2 in zip(right_x[::2], right_x[1::2], right_y[::2], right_y[1::2]):
             if x1 < float(WIDTH) * (3.0/4.0) and x2 < float(WIDTH) * (3.0/4.0):
@@ -347,8 +380,6 @@ class CAM_DRIVING:
             elif x1 > float(WIDTH) * (3.0/4.0) and x2 > float(WIDTH) * (3.0/4.0):
                 if y1 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0 or y2 < float(ROI_ROW + HEIGHT - ROI_OFFSET) / 2.0:
                     self.right_right_flag = True
-            else:
-                continue
             
         if self.left_left_flag and self.left_right_flag and self.right_left_flag and self.right_right_flag:
             self.total_flag = True
@@ -357,6 +388,7 @@ class CAM_DRIVING:
         
         return self.total_flag
 
+    # Find midpoint for crosswalk (left)
     def find_midpoint_crosswalk_left(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
@@ -402,6 +434,7 @@ class CAM_DRIVING:
 
         return self.x_midpoint, direction_flag
     
+    # Find midpoint for crosswalk (right)
     def find_midpoint_crosswalk_right(self):
         while not self.img_proc.is_image_ready():
             RATE.sleep()
@@ -447,41 +480,49 @@ class CAM_DRIVING:
 
         return self.x_midpoint, direction_flag
 
+
 # LINE TRACKING BY USING LIDAR
-# USAGE : OBSTACLE AVOIDANCE(MISSION 3), TUNNEL DRIVING(MISSION 4)
+# USAGE: OBSTACLE AVOIDANCE (MISSION 3), TUNNEL DRIVING (MISSION 4)
 class LIDAR_DRIVING:
     def __init__(self):
+        # Subscribe to the LIDAR scan topic
         rospy.Subscriber("/scan", LaserScan, self.lidar_callback)
         
+        # Publishers for LIDAR-related markers and points
         self.lidar_xy_points_pub = rospy.Publisher('/lidar_xy_points', Marker, queue_size=10)
         self.clustered_points_pub = rospy.Publisher('/clustered_points', Marker, queue_size=10)
         self.vector_pub = rospy.Publisher('/min_max_vector', Marker, queue_size=10)
         self.min_max_point_pub = rospy.Publisher('/min_max_point', Marker, queue_size=10)
 
+        # Initialize LIDAR points and constants
         self.lidar_points = None
-        self.THETA2INPUT = 50.0 / 90.0  # theta : -90 ~ 90, input : -50 ~ 50
+        self.THETA2INPUT = 50.0 / 90.0  # Convert theta (-90 ~ 90) to input (-50 ~ 50)
         self.LIDAR_ROI = [(0, 181), (180, 361)]
         self.lidar_ready = False
         
+    # Callback function for LIDAR data
     def lidar_callback(self, data):
         self.lidar_points = np.asarray(data.ranges)
         self.lidar_ready = True
 
+    # Get side distances from LIDAR points
     def get_side_distance(self):
         if self.lidar_points is None:
             return 0, 0
         return self.lidar_points[0], self.lidar_points[360]
 
+    # Preprocess LIDAR data for clustering
     def preprocess_lidar_data(self):
         if self.lidar_points is None:
-            return np.asarray([[0,0]])
+            return np.asarray([[0, 0]])
 
         ranges = np.array(self.lidar_points)
         valid_idx = (ranges > 0.1) & (ranges < 0.50)
         points = np.column_stack((ranges[valid_idx] * np.cos(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx]),
-                                ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
+                                  ranges[valid_idx] * np.sin(np.linspace(0, 2 * np.pi, len(ranges))[valid_idx])))
         return points
 
+    # Cluster LIDAR points using DBSCAN
     def cluster(self, points):
         if len(points) <= 1:
             return None, np.array([[0, 0]]), 0, 0, None
@@ -510,7 +551,7 @@ class LIDAR_DRIVING:
 
         return center, largest_cluster, max_y_index, min_y_index, closest_cluster
 
-    # FOR TUNNEL (MISSION 4)
+    # Find midpoint for tunnel driving (MISSION 4)
     def find_midpoint(self):
         while not self.lidar_ready:
             RATE.sleep()
@@ -536,7 +577,7 @@ class LIDAR_DRIVING:
 
         return ref_angle
 
-    # FOR OBSTACLE AVOIDANCE (MISSION 3)
+    # Find closest cluster for obstacle avoidance (MISSION 3)
     def find_closest_cluster(self):
         while not self.lidar_ready:
             RATE.sleep()
@@ -556,12 +597,15 @@ class LIDAR_DRIVING:
         
         return closest_cluster_center, distance
 
+
+    # Publish LIDAR points for visualization
     def publish_lidar_points(self, points):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
         marker.action = Marker.ADD
 
+        # Add points to the marker
         for point in points:
             p = Point()
             p.x = point[0]
@@ -569,6 +613,7 @@ class LIDAR_DRIVING:
             p.z = 0
             marker.points.append(p)
 
+        # Set marker properties
         marker.scale.x = 0.1
         marker.scale.y = 0.1
         marker.scale.z = 0.1
@@ -578,12 +623,14 @@ class LIDAR_DRIVING:
         marker.color.b = 0.0
         self.lidar_xy_points_pub.publish(marker)
 
+    # Publish clustered LIDAR points for visualization
     def publish_clustered_points(self, clustered_points):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
         marker.action = Marker.ADD
 
+        # Add clustered points to the marker
         for point in clustered_points:
             p = Point()
             p.x = point[0]
@@ -591,6 +638,7 @@ class LIDAR_DRIVING:
             p.z = 0.05
             marker.points.append(p)
 
+        # Set marker properties
         marker.scale.x = 0.1
         marker.scale.y = 0.1
         marker.scale.z = 0.1
@@ -600,6 +648,7 @@ class LIDAR_DRIVING:
         marker.color.b = 1.0
         self.clustered_points_pub.publish(marker)
 
+    # Publish reference vector for visualization
     def publish_ref_vector(self, vector):
         marker = Marker()
         marker.header.frame_id = "base_link"
@@ -609,51 +658,52 @@ class LIDAR_DRIVING:
         marker.type = Marker.ARROW
         marker.action = Marker.ADD
 
-        # Start point of the vector
+        # Define the start and end points of the vector
         start_point = Point()
         start_point.x = 0
         start_point.y = 0
         start_point.z = 0
 
-        # End point of the vector
         end_point = Point()
         end_point.x = vector[0]
         end_point.y = -vector[1]
-        end_point.z = 0  # Adjust if needed
+        end_point.z = 0
 
         marker.points.append(start_point)
         marker.points.append(end_point)
 
+        # Set marker properties
         marker.scale.x = 0.1
         marker.scale.y = 0.2
         marker.scale.z = 0.2
-
         marker.color.a = 1.0
-        marker.color.r = 1.0 
-        marker.color.g = 0.0 
+        marker.color.r = 1.0
+        marker.color.g = 0.0
         marker.color.b = 0.0
         self.vector_pub.publish(marker)
 
+    # Publish minimum and maximum points for visualization
     def publish_min_max_point(self, min_point_, max_point_):
         marker = Marker()
         marker.header.frame_id = "base_link"
         marker.type = Marker.POINTS
         marker.action = Marker.ADD
 
-        # MIN
+        # Define the minimum point
         min_point = Point()
         min_point.x = min_point_[0]
         min_point.y = min_point_[1]
         min_point.z = 0.2
         marker.points.append(min_point)
 
-        # MAX
+        # Define the maximum point
         max_point = Point()
         max_point.x = max_point_[0]
         max_point.y = max_point_[1]
         max_point.z = 0.1
         marker.points.append(max_point)
 
+        # Set marker properties
         marker.scale.x = 0.1
         marker.scale.y = 0.1
         marker.scale.z = 0.1
@@ -683,31 +733,33 @@ if __name__ == '__main__':
     crosswalk_flag = False
     is_single_color = True
     tunnel_detect_flag = False
-    drive_mode = "CAM"      # Camera or Lidar mode
+    drive_mode = "CAM"  # Camera or Lidar mode
     is_crossroad = False
 
     while not rospy.is_shutdown():
        
-       # AR Detect
+        # AR Detect
         ar_ID, ar_distance = ar_tag.AR_detect()
         
         # Find Closest Cluster
         closest_cluster_center, cluster_distance = lidar_drive.find_closest_cluster()
         drive_type = "LINE TRACKING"
 
+        # Detect tunnel
         if ar_ID and ar_ID == 6 and ar_distance < 0.5 and drive_mode == "CAM":
             if not tunnel_detect_flag:
-                print("TUNNEL DETECT!!! __0617")
+                print("TUNNEL DETECT!!!")
                 tunnel_detect_flag = True
 
+        # Switch to LIDAR driving mode in tunnel
         if tunnel_detect_flag:
             _, right = lidar_drive.get_side_distance()
             if right < 0.6:
-                right_stack +=1
+                right_stack += 1
             else:
-                right = 0
+                right_stack = 0
             if cluster_distance < 0.3 and right_stack > 10:
-                print("TUNNEL DRIVE MODE ON!!! __0617")
+                print("TUNNEL DRIVE MODE ON!!!")
                 drive_mode = "LIDAR"
                 tunnel_detect_flag = None
                 
@@ -725,20 +777,20 @@ if __name__ == '__main__':
             
             midpoint = lidar_drive.find_midpoint()
             drive_type = "TUNNEL DRIVING"
-            print("TUNNEL DRIVING!!! __0617")
+            print("TUNNEL DRIVING!!!")
             
             # Finish tunnel
             _, right_side = lidar_drive.get_side_distance()
 
-            if right_side > 0.8 : 
+            if right_side > 0.8:
                 stack += 1
-            else :
+            else:
                 stack = 0
             if stack > 10:
                 drive_mode = "CAM"
-                print("ESCAPE TUNNEL!!! __0617")
+                print("ESCAPE TUNNEL!!!")
                               
-        # Crosswalk
+        # Handle Crosswalk
         if crosswalk_flag and is_single_color:
             can_we_go = traffic_light.traffic_single()
             
@@ -751,7 +803,7 @@ if __name__ == '__main__':
             is_single_color = False
             print("Single Color Go Go Go!!!")
         
-        # Crossroads & Stop Mission
+        # Handle Crossroads & Stop Mission
         if ar_ID:
             if ar_ID == 2:
                 print("Crossroad!!!")
@@ -771,6 +823,7 @@ if __name__ == '__main__':
                     xycar.drive(angle, speed)
                     RATE.sleep()
 
+        # Crossroad driving
         while prev_ar_ID == 2:
             can_we_go, direction = traffic_light.traffic_crossroad()
             crossroad_flag = cam_drive.check_crossroad()
@@ -793,10 +846,11 @@ if __name__ == '__main__':
             angle = xycar.pid(midpoint)
             xycar.drive(angle, speed * can_we_go) 
         
+        # Stop if done
         if is_done:
             print("Race is done.")
             break
             
+        # Drive the car
         angle = xycar.pid(midpoint, drive_type)
         xycar.drive(angle, speed * can_we_go)
-        
